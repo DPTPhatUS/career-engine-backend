@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 
 
 SCOPES = ["https://www.googleapis.com/auth/documents"]
-DOCUMENT_ID = "1RshBfs5qa6_YPrhMHfBPesDzIg2tvMF70Jt6QHHkcy4"
+DOCUMENT_ID = "16dTVwalHaMiACxwjLNzCr5nRXaB_jsc-KzxCHy9BTPY"
 
 FULL_NAME = "Jobby McJobface"
 EMAIL = "jobbymcjobface@gmail.com"
@@ -230,6 +230,23 @@ def add_bold(requests, start, end):
     )
 
 
+def add_italic(requests, start, end):
+    requests.append(
+        {
+            "updateTextStyle": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "textStyle": {
+                    "italic": True,
+                },
+                "fields": "italic",
+            }
+        }
+    )
+
+
 def insert_personal_info(requests, start_index):
     """Insert name, email, phone, address, and GitHub link."""
     index = start_index
@@ -285,18 +302,26 @@ def insert_education_section(requests, start_index):
     line_1 = f"{UNIVERSITY} | {TIME_PERIOD}\n"
     line_1_start, line_1_end, index = append_text(requests, index, line_1)
     add_text_style(requests, line_1_start, line_1_end)
+    add_bold(requests, line_1_start, line_1_end - 1)
 
     line_2 = f"{DEGREE}, {FIELD} | {EDUCATION_LOCATION}\n"
     line_2_start, line_2_end, index = append_text(requests, index, line_2)
     add_text_style(requests, line_2_start, line_2_end)
+    add_italic(requests, line_2_start, line_2_end - 1)
 
     edu_bullet_1 = f"GPA: {GPA}\n"
     edu_bullet_1_start, edu_bullet_1_end, index = append_text(requests, index, edu_bullet_1)
     add_text_style(requests, edu_bullet_1_start, edu_bullet_1_end)
+    add_bold(requests, edu_bullet_1_start, edu_bullet_1_end - 1)
 
     edu_bullet_2 = f"Relevant Coursework: {RELEVANT_COURSEWORK}\n"
     edu_bullet_2_start, edu_bullet_2_end, index = append_text(requests, index, edu_bullet_2)
     add_text_style(requests, edu_bullet_2_start, edu_bullet_2_end)
+    add_bold(
+        requests,
+        edu_bullet_2_start,
+        edu_bullet_2_start + len("Relevant Coursework:"),
+    )
 
     apply_bullets(requests, edu_bullet_1_start, edu_bullet_2_end)
     index = append_spacer_line(requests, index)
