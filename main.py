@@ -24,6 +24,7 @@ GPA = "3.63/4.0"
 
 SAMPLE_PROJECT_TITLE = "Career Engine"
 SAMPLE_PROJECT_DATE = "Jan. 2026 - Present"
+SAMPLE_PROJECT_GITHUB_URL = "https://github.com/sample/career-engine"
 SAMPLE_PROJECT_STACK = "Python, FastAPI, Google Docs API, PostgreSQL"
 SAMPLE_PROJECT_BULLETS = [
     "Built a resume management backend to generate and update structured resume sections automatically.",
@@ -35,8 +36,8 @@ SKILLS_LANGUAGES = "Python, SQL, JavaScript"
 SKILLS_FRAMEWORKS = "FastAPI, Flask, React"
 SKILLS_TOOLS = "Git, Docker, Google Cloud"
 
-HEADER_FONT_SIZE = 13
-BODY_FONT_SIZE = 11
+HEADER_FONT_SIZE = 12
+BODY_FONT_SIZE = 12
 HEADER_FONT_FAMILY = "Garamond"
 BODY_FONT_FAMILY = "Garamond"
 
@@ -150,8 +151,8 @@ def apply_bullets(requests, start, end):
                     "endIndex": end,
                 },
                 "paragraphStyle": {
-                    "indentStart": {"magnitude": 0, "unit": "PT"},
-                    "indentFirstLine": {"magnitude": -6, "unit": "PT"},
+                    "indentStart": {"magnitude": 18, "unit": "PT"},
+                    "indentFirstLine": {"magnitude": 0, "unit": "PT"},
                 },
                 "fields": "indentStart,indentFirstLine",
             }
@@ -197,6 +198,23 @@ def add_text_style(requests, start, end, *, bold=False, font_size=BODY_FONT_SIZE
     )
 
 
+def add_bold(requests, start, end):
+    requests.append(
+        {
+            "updateTextStyle": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "textStyle": {
+                    "bold": True,
+                },
+                "fields": "bold",
+            }
+        }
+    )
+
+
 def insert_personal_info(requests, start_index):
     """Insert name, email, phone, address, and GitHub link."""
     index = start_index
@@ -209,7 +227,7 @@ def insert_personal_info(requests, start_index):
         name_start,
         name_end,
         bold=True,
-        font_size=16,
+        font_size=24,
         font_family=BODY_FONT_FAMILY,
     )
 
@@ -221,7 +239,7 @@ def insert_personal_info(requests, start_index):
         requests,
         contact_start,
         contact_end,
-        font_size=BODY_FONT_SIZE,
+        font_size=16,
         font_family=BODY_FONT_FAMILY,
     )
     add_paragraph_border_bottom(requests, contact_start, contact_end)
@@ -284,6 +302,12 @@ def insert_sample_project(requests, start_index):
     title_line = f"{SAMPLE_PROJECT_TITLE} | {SAMPLE_PROJECT_DATE}\n"
     title_start, title_end, index = append_text(requests, index, title_line)
     add_text_style(requests, title_start, title_end, bold=True)
+    insert_link(
+        requests,
+        title_start,
+        title_start + len(SAMPLE_PROJECT_TITLE),
+        SAMPLE_PROJECT_GITHUB_URL,
+    )
 
     stack_line = f"Tech Stack: {SAMPLE_PROJECT_STACK}\n"
     stack_start, stack_end, index = append_text(requests, index, stack_line)
@@ -329,13 +353,37 @@ def insert_skills_section(requests, start_index):
     )
     add_paragraph_border_bottom(requests, header_start, header_end)
 
-    skills_text = (
-        f"Languages: {SKILLS_LANGUAGES}\n"
-        f"Frameworks: {SKILLS_FRAMEWORKS}\n"
-        f"Tools: {SKILLS_TOOLS}\n"
-    )
-    skills_start, skills_end, index = append_text(requests, index, skills_text)
-    add_text_style(requests, skills_start, skills_end)
+    # Skills as bullet points (category labels bold)
+    bullet_block_start = None
+    bullet_block_end = None
+
+    lines = [
+        ("Languages:", SKILLS_LANGUAGES),
+        ("Frameworks:", SKILLS_FRAMEWORKS),
+        ("Tools:", SKILLS_TOOLS),
+    ]
+
+    for label, value in lines:
+        line_text = f"{label} {value}\n"
+        line_start, line_end, index = append_text(requests, index, line_text)
+        add_text_style(
+            requests,
+            line_start,
+            line_end,
+            font_size=BODY_FONT_SIZE,
+            font_family=BODY_FONT_FAMILY,
+        )
+        add_bold(requests, line_start, line_start + len(label))
+
+        if bullet_block_start is None:
+            bullet_block_start = line_start
+        bullet_block_end = line_end
+
+    if bullet_block_start is not None and bullet_block_end is not None:
+        apply_bullets(requests, bullet_block_start, bullet_block_end)
+
+    # Add spacing after skills
+    index = append_text(requests, index, "\n")[2]
 
     return index
 
