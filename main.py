@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 
 
 SCOPES = ["https://www.googleapis.com/auth/documents"]
-DOCUMENT_ID = "16dTVwalHaMiACxwjLNzCr5nRXaB_jsc-KzxCHy9BTPY"
+DOCUMENT_ID = "1RshBfs5qa6_YPrhMHfBPesDzIg2tvMF70Jt6QHHkcy4"
 
 FULL_NAME = "Jobby McJobface"
 EMAIL = "jobbymcjobface@gmail.com"
@@ -21,6 +21,8 @@ DEGREE = "Bachelor of Science"
 FIELD = "Advanced Program in Computer Science"
 TIME_PERIOD = "Oct. 2023 - Oct. 2027 (Est.)"
 GPA = "3.63/4.0"
+EDUCATION_LOCATION = "Somewhere, Earth"
+RELEVANT_COURSEWORK = "Data Structures, Algorithms, Database Systems, Operating Systems"
 
 SAMPLE_PROJECT_TITLE = "Career Engine"
 SAMPLE_PROJECT_DATE = "Jan. 2026 - Present"
@@ -38,6 +40,7 @@ SKILLS_TOOLS = "Git, Docker, Google Cloud"
 
 HEADER_FONT_SIZE = 12
 BODY_FONT_SIZE = 12
+SPACER_FONT_SIZE = 10
 HEADER_FONT_FAMILY = "Garamond"
 BODY_FONT_FAMILY = "Garamond"
 
@@ -174,6 +177,18 @@ def append_text(requests, index, text):
     return start, end, end
 
 
+def append_spacer_line(requests, index):
+    spacer_start, spacer_end, index = append_text(requests, index, "\n")
+    add_text_style(
+        requests,
+        spacer_start,
+        spacer_end,
+        font_size=SPACER_FONT_SIZE,
+        font_family=BODY_FONT_FAMILY,
+    )
+    return index
+
+
 def add_text_style(requests, start, end, *, bold=False, font_size=BODY_FONT_SIZE, font_family=BODY_FONT_FAMILY):
     requests.append(
         {
@@ -248,7 +263,7 @@ def insert_personal_info(requests, start_index):
     insert_link(requests, github_start, github_end, GITHUB_URL)
 
     # Add spacing after personal info
-    index = append_text(requests, index, "\n")[2]
+    index = append_spacer_line(requests, index)
 
     return index
 
@@ -267,14 +282,24 @@ def insert_education_section(requests, start_index):
     )
     add_paragraph_border_bottom(requests, header_start, header_end)
 
-    education_text = (
-        f"{UNIVERSITY}\n"
-        f"{DEGREE}, {FIELD}\n"
-        f"{TIME_PERIOD}\n"
-        f"GPA: {GPA}\n\n"
-    )
-    body_start, body_end, index = append_text(requests, index, education_text)
-    add_text_style(requests, body_start, body_end)
+    line_1 = f"{UNIVERSITY} | {TIME_PERIOD}\n"
+    line_1_start, line_1_end, index = append_text(requests, index, line_1)
+    add_text_style(requests, line_1_start, line_1_end)
+
+    line_2 = f"{DEGREE}, {FIELD} | {EDUCATION_LOCATION}\n"
+    line_2_start, line_2_end, index = append_text(requests, index, line_2)
+    add_text_style(requests, line_2_start, line_2_end)
+
+    edu_bullet_1 = f"GPA: {GPA}\n"
+    edu_bullet_1_start, edu_bullet_1_end, index = append_text(requests, index, edu_bullet_1)
+    add_text_style(requests, edu_bullet_1_start, edu_bullet_1_end)
+
+    edu_bullet_2 = f"Relevant Coursework: {RELEVANT_COURSEWORK}\n"
+    edu_bullet_2_start, edu_bullet_2_end, index = append_text(requests, index, edu_bullet_2)
+    add_text_style(requests, edu_bullet_2_start, edu_bullet_2_end)
+
+    apply_bullets(requests, edu_bullet_1_start, edu_bullet_2_end)
+    index = append_spacer_line(requests, index)
 
     return index
 
@@ -299,6 +324,7 @@ def insert_technical_projects_section(requests, start_index):
 def insert_sample_project(requests, start_index):
     index = start_index
 
+    # Multi-tab line pushes date near the right margin with stable API behavior.
     title_line = f"{SAMPLE_PROJECT_TITLE} | {SAMPLE_PROJECT_DATE}\n"
     title_start, title_end, index = append_text(requests, index, title_line)
     add_text_style(requests, title_start, title_end, bold=True)
@@ -334,7 +360,7 @@ def insert_sample_project(requests, start_index):
         apply_bullets(requests, bullet_block_start, bullet_block_end)
 
     # Add spacing after project
-    index = append_text(requests, index, "\n")[2]
+    index = append_spacer_line(requests, index)
 
     return index
 
@@ -383,7 +409,7 @@ def insert_skills_section(requests, start_index):
         apply_bullets(requests, bullet_block_start, bullet_block_end)
 
     # Add spacing after skills
-    index = append_text(requests, index, "\n")[2]
+    index = append_spacer_line(requests, index)
 
     return index
 
@@ -391,7 +417,19 @@ def insert_skills_section(requests, start_index):
 def main():
     creds = get_credentials()
     service = build("docs", "v1", credentials=creds)
-    requests = []
+    requests = [
+        {
+            "updateDocumentStyle": {
+                "documentStyle": {
+                    "marginLeft": {"magnitude": 36, "unit": "PT"},
+                    "marginRight": {"magnitude": 36, "unit": "PT"},
+                    "marginTop": {"magnitude": 32, "unit": "PT"},
+                    "marginBottom": {"magnitude": 32, "unit": "PT"},
+                },
+                "fields": "marginLeft,marginRight,marginTop,marginBottom",
+            }
+        }
+    ]
 
     index = get_append_index(service, DOCUMENT_ID)
     index = insert_personal_info(requests, index)
