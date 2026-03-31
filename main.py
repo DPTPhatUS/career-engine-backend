@@ -106,27 +106,57 @@ def insert_link(requests, start, end, url):
     )
 
 
-def insert_section_separator(requests, index):
-    """Insert a horizontal line separator."""
-    separator = "\n" + "─" * 50 + "\n"
-    sep_start, sep_end, index = append_text(requests, index, separator)
-    return index
-
-
-def apply_bullets(requests, bullet_ranges):
-    """Apply bullet formatting to multiple paragraph ranges."""
-    for start, end in bullet_ranges:
-        requests.append(
-            {
-                "createParagraphBullets": {
-                    "range": {
-                        "startIndex": start,
-                        "endIndex": end,
-                    },
-                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
-                }
+def add_paragraph_border_bottom(requests, start, end, *, width_pt=1, padding_pt=1):
+    """Apply a bottom border to the paragraphs covered by [start, end)."""
+    requests.append(
+        {
+            "updateParagraphStyle": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "paragraphStyle": {
+                    "borderBottom": {
+                        "color": {"color": {"rgbColor": {"red": 0, "green": 0, "blue": 0}}},
+                        "width": {"magnitude": width_pt, "unit": "PT"},
+                        "padding": {"magnitude": padding_pt, "unit": "PT"},
+                        "dashStyle": "SOLID",
+                    }
+                },
+                "fields": "borderBottom",
             }
-        )
+        }
+    )
+
+
+def apply_bullets(requests, start, end):
+    """Apply bullet formatting to all paragraphs in [start, end) and remove indent."""
+    requests.append(
+        {
+            "createParagraphBullets": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
+            }
+        }
+    )
+    requests.append(
+        {
+            "updateParagraphStyle": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "paragraphStyle": {
+                    "indentStart": {"magnitude": 0, "unit": "PT"},
+                    "indentFirstLine": {"magnitude": -6, "unit": "PT"},
+                },
+                "fields": "indentStart,indentFirstLine",
+            }
+        }
+    )
 
 
 def append_text(requests, index, text):
@@ -174,21 +204,30 @@ def insert_personal_info(requests, start_index):
     # Insert name
     name_line = f"{FULL_NAME}\n"
     name_start, name_end, index = append_text(requests, index, name_line)
-    add_text_style(requests, name_start, name_end, bold=True, font_size=16)
+    add_text_style(
+        requests,
+        name_start,
+        name_end,
+        bold=True,
+        font_size=16,
+        font_family=BODY_FONT_FAMILY,
+    )
 
-    # Insert contact info line
+    # Insert contact info line (single insert to simplify styling + link range)
     contact_prefix = f"{EMAIL} | {PHONE} | {ADDRESS} | "
-    contact_start, _, index = append_text(requests, index, contact_prefix)
-
-    # Insert GitHub link
-    github_start = index
-    github_end = index + len(GITHUB)
-    append_text(requests, github_start, GITHUB)
-    index = github_end
+    contact_line = f"{contact_prefix}{GITHUB}\n"
+    contact_start, contact_end, index = append_text(requests, index, contact_line)
+    add_text_style(
+        requests,
+        contact_start,
+        contact_end,
+        font_size=BODY_FONT_SIZE,
+        font_family=BODY_FONT_FAMILY,
+    )
+    add_paragraph_border_bottom(requests, contact_start, contact_end)
+    github_start = contact_start + len(contact_prefix)
+    github_end = github_start + len(GITHUB)
     insert_link(requests, github_start, github_end, GITHUB_URL)
-
-    # Add newline after contact info
-    index = append_text(requests, index, "\n")[2]
 
     # Add spacing after personal info
     index = append_text(requests, index, "\n")[2]
@@ -208,7 +247,7 @@ def insert_education_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
-    index = insert_section_separator(requests, index)
+    add_paragraph_border_bottom(requests, header_start, header_end)
 
     education_text = (
         f"{UNIVERSITY}\n"
@@ -234,7 +273,7 @@ def insert_technical_projects_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
-    index = insert_section_separator(requests, index)
+    add_paragraph_border_bottom(requests, header_start, header_end)
 
     return index
 
@@ -250,16 +289,28 @@ def insert_sample_project(requests, start_index):
     stack_start, stack_end, index = append_text(requests, index, stack_line)
     add_text_style(requests, stack_start, stack_end)
 
-    # Insert bullets and track their ranges for formatting
-    bullet_ranges = []
+    # Insert bullets, style them, then apply real Docs bullet formatting
+    bullet_block_start = None
+    bullet_block_end = None
     for bullet in SAMPLE_PROJECT_BULLETS:
         bullet_text = bullet + "\n"
         bullet_start, bullet_end, index = append_text(requests, index, bullet_text)
-        bullet_ranges.append((bullet_start, bullet_end))
+        add_text_style(
+            requests,
+            bullet_start,
+            bullet_end,
+            font_size=BODY_FONT_SIZE,
+            font_family=BODY_FONT_FAMILY,
+        )
+        if bullet_block_start is None:
+            bullet_block_start = bullet_start
+        bullet_block_end = bullet_end
+
+    if bullet_block_start is not None and bullet_block_end is not None:
+        apply_bullets(requests, bullet_block_start, bullet_block_end)
 
     # Add spacing after project
     index = append_text(requests, index, "\n")[2]
-    apply_bullets(requests, bullet_ranges)
 
     return index
 
@@ -276,7 +327,7 @@ def insert_skills_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
-    index = insert_section_separator(requests, index)
+    add_paragraph_border_bottom(requests, header_start, header_end)
 
     skills_text = (
         f"Languages: {SKILLS_LANGUAGES}\n"
