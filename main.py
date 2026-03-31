@@ -14,6 +14,7 @@ EMAIL = "jobbymcjobface@gmail.com"
 PHONE = "0123-456-789"
 ADDRESS = "Somewhere, Earth"
 GITHUB = "GitHub"
+GITHUB_URL = "https://github.com"
 
 UNIVERSITY = "University of Life"
 DEGREE = "Bachelor of Science"
@@ -25,9 +26,9 @@ SAMPLE_PROJECT_TITLE = "Career Engine"
 SAMPLE_PROJECT_DATE = "Jan. 2026 - Present"
 SAMPLE_PROJECT_STACK = "Python, FastAPI, Google Docs API, PostgreSQL"
 SAMPLE_PROJECT_BULLETS = [
-    "- Built a resume management backend to generate and update structured resume sections automatically.",
-    "- Implemented batched Google Docs API requests to insert and style content with consistent formatting.",
-    "- Designed modular section writers to support scalable additions for projects, education, and skills.",
+    "Built a resume management backend to generate and update structured resume sections automatically.",
+    "Implemented batched Google Docs API requests to insert and style content with consistent formatting.",
+    "Designed modular section writers to support scalable additions for projects, education, and skills.",
 ]
 
 SKILLS_LANGUAGES = "Python, SQL, JavaScript"
@@ -85,6 +86,49 @@ def get_append_index(service, document_id):
     return max(1, body_content[-1]["endIndex"] - 1)
 
 
+def insert_link(requests, start, end, url):
+    """Apply link styling to a range of text."""
+    requests.append(
+        {
+            "updateTextStyle": {
+                "range": {
+                    "startIndex": start,
+                    "endIndex": end,
+                },
+                "textStyle": {
+                    "link": {
+                        "url": url,
+                    }
+                },
+                "fields": "link",
+            }
+        }
+    )
+
+
+def insert_section_separator(requests, index):
+    """Insert a horizontal line separator."""
+    separator = "\n" + "─" * 50 + "\n"
+    sep_start, sep_end, index = append_text(requests, index, separator)
+    return index
+
+
+def apply_bullets(requests, bullet_ranges):
+    """Apply bullet formatting to multiple paragraph ranges."""
+    for start, end in bullet_ranges:
+        requests.append(
+            {
+                "createParagraphBullets": {
+                    "range": {
+                        "startIndex": start,
+                        "endIndex": end,
+                    },
+                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
+                }
+            }
+        )
+
+
 def append_text(requests, index, text):
     requests.append(
         {
@@ -123,6 +167,35 @@ def add_text_style(requests, start, end, *, bold=False, font_size=BODY_FONT_SIZE
     )
 
 
+def insert_personal_info(requests, start_index):
+    """Insert name, email, phone, address, and GitHub link."""
+    index = start_index
+
+    # Insert name
+    name_line = f"{FULL_NAME}\n"
+    name_start, name_end, index = append_text(requests, index, name_line)
+    add_text_style(requests, name_start, name_end, bold=True, font_size=16)
+
+    # Insert contact info line
+    contact_prefix = f"{EMAIL} | {PHONE} | {ADDRESS} | "
+    contact_start, _, index = append_text(requests, index, contact_prefix)
+
+    # Insert GitHub link
+    github_start = index
+    github_end = index + len(GITHUB)
+    append_text(requests, github_start, GITHUB)
+    index = github_end
+    insert_link(requests, github_start, github_end, GITHUB_URL)
+
+    # Add newline after contact info
+    index = append_text(requests, index, "\n")[2]
+
+    # Add spacing after personal info
+    index = append_text(requests, index, "\n")[2]
+
+    return index
+
+
 def insert_education_section(requests, start_index):
     index = start_index
 
@@ -135,6 +208,7 @@ def insert_education_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
+    index = insert_section_separator(requests, index)
 
     education_text = (
         f"{UNIVERSITY}\n"
@@ -160,6 +234,7 @@ def insert_technical_projects_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
+    index = insert_section_separator(requests, index)
 
     return index
 
@@ -175,9 +250,16 @@ def insert_sample_project(requests, start_index):
     stack_start, stack_end, index = append_text(requests, index, stack_line)
     add_text_style(requests, stack_start, stack_end)
 
-    bullets_text = "\n".join(SAMPLE_PROJECT_BULLETS) + "\n\n"
-    bullet_start, bullet_end, index = append_text(requests, index, bullets_text)
-    add_text_style(requests, bullet_start, bullet_end)
+    # Insert bullets and track their ranges for formatting
+    bullet_ranges = []
+    for bullet in SAMPLE_PROJECT_BULLETS:
+        bullet_text = bullet + "\n"
+        bullet_start, bullet_end, index = append_text(requests, index, bullet_text)
+        bullet_ranges.append((bullet_start, bullet_end))
+
+    # Add spacing after project
+    index = append_text(requests, index, "\n")[2]
+    apply_bullets(requests, bullet_ranges)
 
     return index
 
@@ -194,6 +276,7 @@ def insert_skills_section(requests, start_index):
         font_size=HEADER_FONT_SIZE,
         font_family=HEADER_FONT_FAMILY,
     )
+    index = insert_section_separator(requests, index)
 
     skills_text = (
         f"Languages: {SKILLS_LANGUAGES}\n"
@@ -212,6 +295,7 @@ def main():
     requests = []
 
     index = get_append_index(service, DOCUMENT_ID)
+    index = insert_personal_info(requests, index)
     index = insert_education_section(requests, index)
     index = insert_technical_projects_section(requests, index)
     index = insert_sample_project(requests, index)
@@ -222,7 +306,7 @@ def main():
         .batchUpdate(documentId=DOCUMENT_ID, body={"requests": requests})
         .execute()
     )
-    print("Inserted sections: EDUCATION, TECHNICAL PROJECTS, SAMPLE PROJECT, SKILLS")
+    print("Inserted sections: PERSONAL INFO, EDUCATION, TECHNICAL PROJECTS, SAMPLE PROJECT, SKILLS")
     print(f"Request count: {len(requests)}")
     print(result)
 
