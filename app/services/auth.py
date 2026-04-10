@@ -58,38 +58,31 @@ def resolve_next_url(next_url: str | None, settings: Settings) -> str:
 
 
 def _build_flow(settings: Settings, state: str | None = None, redirect_uri: str | None = None) -> Flow:
-    if settings.google_client_id and settings.google_client_secret:
-        client_config = {
-            "web": {
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [
-                    settings.google_redirect_uri,
-                    settings.google_login_redirect_uri,
-                ],
-            }
-        }
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=settings.google_scopes,
-            state=state,
-        )
-    elif settings.google_client_secrets_file:
-        flow = Flow.from_client_secrets_file(
-            settings.google_client_secrets_file,
-            scopes=settings.google_scopes,
-            state=state,
-        )
-    else:
+    if not (settings.google_client_id and settings.google_client_secret):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET "
-                "(or GOOGLE_CLIENT_SECRETS_FILE)."
+                "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
             ),
         )
+
+    client_config = {
+        "web": {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [
+                settings.google_redirect_uri,
+                settings.google_login_redirect_uri,
+            ],
+        }
+    }
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=settings.google_scopes,
+        state=state,
+    )
 
     flow.redirect_uri = redirect_uri or settings.google_redirect_uri
     return flow

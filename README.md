@@ -53,10 +53,6 @@ Required variables:
 5. `FRONTEND_ORIGIN`
 6. `ENCRYPTION_KEY` (Fernet key)
 
-Optional fallback:
-
-1. `GOOGLE_CLIENT_SECRETS_FILE` (path to Google OAuth client JSON)
-
 Generate Fernet key:
 
 ```bash
@@ -121,4 +117,4 @@ Generated document URL format:
 
 1. This implementation uses an HttpOnly cookie session for short-lived login.
 2. Session duration defaults to 1 hour (`SESSION_TTL_SECONDS`).
-3. If you use `GOOGLE_CLIENT_SECRETS_FILE`, keep `credentials.json` out of version control.
+3. Keep OAuth credentials and secrets out of version control.
