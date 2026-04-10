@@ -18,8 +18,13 @@ async def get_or_create_user_by_email(db: AsyncSession, email: str) -> User:
     return user
 
 
-async def create_oauth_state(db: AsyncSession, state: str, user_id: str) -> OAuthState:
-    row = OAuthState(state=state, user_id=user_id)
+async def create_oauth_state(
+    db: AsyncSession,
+    state: str,
+    user_id: str,
+    code_verifier: str | None = None,
+) -> OAuthState:
+    row = OAuthState(state=state, user_id=user_id, code_verifier=code_verifier)
     db.add(row)
     await db.commit()
     return row
@@ -33,8 +38,13 @@ async def delete_oauth_state(db: AsyncSession, state_id: str) -> None:
     await db.execute(delete(OAuthState).where(OAuthState.id == state_id))
 
 
-async def create_oauth_login_state(db: AsyncSession, state: str, next_url: str | None) -> OAuthLoginState:
-    row = OAuthLoginState(state=state, next_url=next_url)
+async def create_oauth_login_state(
+    db: AsyncSession,
+    state: str,
+    next_url: str | None,
+    code_verifier: str | None = None,
+) -> OAuthLoginState:
+    row = OAuthLoginState(state=state, next_url=next_url, code_verifier=code_verifier)
     db.add(row)
     await db.commit()
     return row

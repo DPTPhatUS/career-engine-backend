@@ -94,14 +94,22 @@ async def create_google_oauth_start(
     settings: Settings,
 ) -> tuple[str, str]:
     state = str(uuid.uuid4())
-    await create_oauth_state(db, state, user.id)
-
     flow = _build_flow(settings, state=state)
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        code_challenge_method="S256",
     )
+
+    code_verifier = flow.code_verifier
+    if not code_verifier:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate OAuth PKCE verifier",
+        )
+
+    await create_oauth_state(db, state, user.id, code_verifier=code_verifier)
     return authorization_url, state
 
 
@@ -111,13 +119,26 @@ async def create_google_login_start(
     next_url: str | None,
 ) -> tuple[str, str]:
     state = str(uuid.uuid4())
-    await create_oauth_login_state(db, state, resolve_next_url(next_url, settings))
-
     flow = _build_flow(settings, state=state, redirect_uri=settings.google_login_redirect_uri)
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        code_challenge_method="S256",
+    )
+
+    code_verifier = flow.code_verifier
+    if not code_verifier:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate OAuth PKCE verifier",
+        )
+
+    await create_oauth_login_state(
+        db,
+        state,
+        resolve_next_url(next_url, settings),
+        code_verifier=code_verifier,
     )
     return authorization_url, state
 
@@ -135,9 +156,11 @@ async def handle_google_oauth_callback(
     user = await db.get(User, oauth_state.user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not oauth_state.code_verifier:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
 
     flow = _build_flow(settings, state=state)
-    flow.fetch_token(code=code)
+    flow.fetch_token(code=code, code_verifier=oauth_state.code_verifier)
     creds = flow.credentials
 
     fernet = get_fernet(settings)
@@ -159,9 +182,11 @@ async def handle_google_login_callback(
     oauth_state = await get_oauth_login_state(db, state)
     if not oauth_state:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+    if not oauth_state.code_verifier:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
 
     flow = _build_flow(settings, state=state, redirect_uri=settings.google_login_redirect_uri)
-    flow.fetch_token(code=code)
+    flow.fetch_token(code=code, code_verifier=oauth_state.code_verifier)
     creds = flow.credentials
 
     if not settings.google_client_id:

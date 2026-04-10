@@ -25,8 +25,8 @@ class Settings(BaseSettings):
             "https://www.googleapis.com/auth/documents",
             "https://www.googleapis.com/auth/drive.file",
             "openid",
-            "email",
-            "profile",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
         ]
     )
 
