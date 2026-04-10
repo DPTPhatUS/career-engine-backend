@@ -5,7 +5,7 @@ FastAPI backend for Career Engine with a Django-style project layout.
 Main features:
 
 1. Persist user resume data (personal info, education, projects, skills) in Postgres.
-2. Connect each user to Google via OAuth web flow.
+2. Login users with Google OAuth web flow.
 3. Generate a brand new Google Doc resume from stored resume payload using Google Docs API.
 
 ## Project Structure
@@ -38,7 +38,7 @@ Main features:
 1. Python 3.11+
 2. `uv` installed
 3. Postgres database
-4. Google OAuth client credentials JSON (`credentials.json`) created as a **Web application** in Google Cloud
+4. Google OAuth Web application credentials from Google Cloud (client ID + client secret)
 
 ## Environment
 
@@ -47,10 +47,15 @@ Copy `.env.example` to `.env` and fill values.
 Required variables:
 
 1. `DATABASE_URL`
-2. `GOOGLE_CLIENT_SECRETS_FILE`
-3. `GOOGLE_REDIRECT_URI`
-4. `FRONTEND_ORIGIN`
-5. `ENCRYPTION_KEY` (Fernet key)
+2. `GOOGLE_CLIENT_ID` (OAuth web client id)
+3. `GOOGLE_CLIENT_SECRET` (OAuth web client secret)
+4. `GOOGLE_REDIRECT_URI`
+5. `FRONTEND_ORIGIN`
+6. `ENCRYPTION_KEY` (Fernet key)
+
+Optional fallback:
+
+1. `GOOGLE_CLIENT_SECRETS_FILE` (path to Google OAuth client JSON)
 
 Generate Fernet key:
 
@@ -86,18 +91,26 @@ curl http://localhost:8000/healthz
 
 Base path: `/api/v1`
 
-1. `GET /auth/google/start`
-	- Requires header: `X-User-Email`
-	- Returns Google authorization URL + state.
-2. `GET /auth/google/callback?state=...&code=...`
-	- Stores encrypted Google credentials for the user.
-3. `POST /resumes`
-	- Requires header: `X-User-Email`
+1. `GET /auth/google/login/start`
+	- Returns Google authorization URL + state for login.
+2. `GET /auth/google/login/callback?state=...&code=...`
+	- Verifies Google identity, stores encrypted Google credentials, sets HttpOnly session cookie, redirects to frontend.
+3. `GET /auth/me`
+	- Returns current session user.
+4. `POST /auth/logout`
+	- Clears the session cookie and invalidates server session.
+5. `GET /auth/google/start`
+	- Requires authenticated session cookie.
+	- Starts Google reconnect flow for already logged-in user.
+6. `GET /auth/google/callback?state=...&code=...`
+	- Stores refreshed encrypted Google credentials for the logged-in user.
+7. `POST /resumes`
+	- Requires authenticated session cookie.
 	- Creates a resume record.
-4. `GET /resumes/{resume_id}`
-5. `PATCH /resumes/{resume_id}`
-6. `DELETE /resumes/{resume_id}`
-7. `POST /resumes/{resume_id}/generate-doc`
+8. `GET /resumes/{resume_id}`
+9. `PATCH /resumes/{resume_id}`
+10. `DELETE /resumes/{resume_id}`
+11. `POST /resumes/{resume_id}/generate-doc`
 	- Creates a new Google Doc resume from stored payload.
 
 Generated document URL format:
@@ -106,6 +119,6 @@ Generated document URL format:
 
 ## Notes
 
-1. This implementation uses `X-User-Email` as a temporary identity mechanism for development.
-2. Replace it with your real app auth (JWT/session) for production.
-3. Keep `credentials.json` out of version control.
+1. This implementation uses an HttpOnly cookie session for short-lived login.
+2. Session duration defaults to 1 hour (`SESSION_TTL_SECONDS`).
+3. If you use `GOOGLE_CLIENT_SECRETS_FILE`, keep `credentials.json` out of version control.

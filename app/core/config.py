@@ -16,8 +16,11 @@ class Settings(BaseSettings):
 
     frontend_origin: str = "http://localhost:3000"
 
-    google_client_secrets_file: str = "credentials.json"
+    google_client_secrets_file: str | None = None
+    google_client_id: str = ""
+    google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+    google_login_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/login/callback"
     google_scopes: list[str] = Field(
         default_factory=lambda: [
             "https://www.googleapis.com/auth/documents",
@@ -27,6 +30,12 @@ class Settings(BaseSettings):
             "profile",
         ]
     )
+
+    session_cookie_name: str = "ce_session"
+    session_ttl_seconds: int = 3600
+    session_renewal_window_seconds: int = 900
+    cookie_samesite: str = "lax"
+    cookie_secure: bool = False
 
     encryption_key: str = "replace-me-with-a-fernet-key"
 

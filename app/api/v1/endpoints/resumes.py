@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core.config import Settings, get_settings
-from app.crud.auth import get_or_create_user_by_email
 from app.crud.resume import (
     create_resume as create_resume_row,
     delete_resume as delete_resume_row,
@@ -21,19 +21,6 @@ from app.schemas.resume import (
 from app.services.resume_generation import generate_document_for_resume
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
-
-
-async def get_current_user(
-    db: AsyncSession = Depends(get_db),
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
-) -> User:
-    if not x_user_email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing X-User-Email header",
-        )
-
-    return await get_or_create_user_by_email(db, x_user_email)
 
 
 def _to_resume_response(item) -> ResumeResponse:
