@@ -187,6 +187,235 @@ Notes:
 
 - Unlike login callback, this one returns JSON (no redirect), so your frontend can choose whether to handle it via a dedicated route or by simply initiating the flow and letting the backend response be shown.
 
+## Profile
+
+Profile endpoints manage account-tied personal information.
+
+All profile endpoints require an authenticated session cookie.
+
+There is exactly one profile per user.
+
+### Profile shape
+
+```json
+{
+  "full_name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "phone": "+1 555 0100",
+  "address": "City, ST",
+  "github_label": "GitHub",
+  "github_url": "https://github.com/ada"
+}
+```
+
+- `github_label` is optional (defaults to `"GitHub"`).
+- `github_url` is optional.
+
+### Get profile
+
+#### `GET /api/v1/profile`
+
+Response `200`:
+
+```json
+{
+  "id": "<profile_id>",
+  "user_id": "<user_id>",
+  "full_name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "phone": "+1 555 0100",
+  "address": "City, ST",
+  "github_label": "GitHub",
+  "github_url": "https://github.com/ada",
+  "created_at": "2026-01-01T12:34:56.000Z",
+  "updated_at": "2026-01-01T12:34:56.000Z"
+}
+```
+
+Errors:
+
+- `404 { "detail": "Profile not found" }` if profile has not been created yet.
+
+### Create or replace profile
+
+#### `PUT /api/v1/profile`
+
+Request:
+
+```json
+{
+  "full_name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "phone": "+1 555 0100",
+  "address": "City, ST",
+  "github_label": "GitHub",
+  "github_url": "https://github.com/ada"
+}
+```
+
+Response `200`: same shape as `GET /api/v1/profile`.
+
+## Educations
+
+Education endpoints manage an ordered list of education entries per user.
+
+All education endpoints require an authenticated session cookie.
+
+### Education item shape
+
+```json
+{
+  "university": "Example University",
+  "degree": "B.S.",
+  "field": "Computer Science",
+  "time_period": "2020-2024",
+  "gpa": "3.9",
+  "location": "City, ST",
+  "relevant_coursework": "Algorithms, Systems"
+}
+```
+
+Optional fields: `gpa`, `location`, `relevant_coursework`.
+
+### List educations
+
+#### `GET /api/v1/educations`
+
+Response `200`:
+
+```json
+[
+  {
+    "id": "<education_id>",
+    "user_id": "<user_id>",
+    "sort_order": 0,
+    "university": "Example University",
+    "degree": "B.S.",
+    "field": "Computer Science",
+    "time_period": "2020-2024",
+    "gpa": "3.9",
+    "location": "City, ST",
+    "relevant_coursework": "Algorithms, Systems",
+    "created_at": "2026-01-01T12:34:56.000Z",
+    "updated_at": "2026-01-01T12:34:56.000Z"
+  }
+]
+```
+
+Items are sorted by `sort_order` ascending, then `created_at` ascending.
+
+### Create education
+
+#### `POST /api/v1/educations`
+
+Request:
+
+```json
+{
+  "university": "Example University",
+  "degree": "B.S.",
+  "field": "Computer Science",
+  "time_period": "2020-2024",
+  "gpa": "3.9",
+  "location": "City, ST",
+  "relevant_coursework": "Algorithms, Systems",
+  "sort_order": 0
+}
+```
+
+- `sort_order` is optional. If omitted, backend appends to the end of the user list.
+
+Response `201`: one `EducationResponse` object.
+
+### Update education
+
+#### `PATCH /api/v1/educations/{education_id}`
+
+Request supports partial updates, including `sort_order`.
+
+Response `200`: updated `EducationResponse` object.
+
+Errors:
+
+- `404 { "detail": "Education not found" }` if missing or not owned by current user.
+
+### Delete education
+
+#### `DELETE /api/v1/educations/{education_id}`
+
+Response `204 No Content`.
+
+## Projects
+
+Project endpoints manage an ordered list of project entries per user.
+
+All project endpoints require an authenticated session cookie.
+
+### Project item shape
+
+```json
+{
+  "title": "My Project",
+  "date_range": "Jan 2024 - Mar 2024",
+  "github_url": "https://github.com/org/repo",
+  "tech_stack": "FastAPI, Postgres",
+  "bullets": ["Did X", "Improved Y"]
+}
+```
+
+Optional fields: `github_url`, `tech_stack`. `bullets` defaults to `[]`.
+
+### List projects
+
+#### `GET /api/v1/projects`
+
+Response `200`: array of `ProjectResponse` objects.
+
+Items are sorted by `sort_order` ascending, then `created_at` ascending.
+
+### Create project
+
+#### `POST /api/v1/projects`
+
+Request:
+
+```json
+{
+  "title": "My Project",
+  "date_range": "Jan 2024 - Mar 2024",
+  "github_url": "https://github.com/org/repo",
+  "tech_stack": "FastAPI, Postgres",
+  "bullets": ["Did X", "Improved Y"],
+  "sort_order": 0
+}
+```
+
+- `sort_order` is optional. If omitted, backend appends to the end of the user list.
+
+Response `201`: one `ProjectResponse` object.
+
+### Update project
+
+#### `PATCH /api/v1/projects/{project_id}`
+
+Request supports partial updates, including `sort_order`.
+
+Response `200`: updated `ProjectResponse` object.
+
+Errors:
+
+- `404 { "detail": "Project not found" }` if missing or not owned by current user.
+
+### Delete project
+
+#### `DELETE /api/v1/projects/{project_id}`
+
+Response `204 No Content`.
+
+## Resume from Scratch
+
+The resume flow remains independent and unchanged: frontend still sends complete resume payloads directly when creating/updating resumes.
+
 ## Resumes
 
 All resume endpoints require an authenticated session cookie.

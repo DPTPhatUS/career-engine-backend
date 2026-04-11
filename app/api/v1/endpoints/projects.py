@@ -1,0 +1,80 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user
+from app.crud.project import (
+    create_project,
+    delete_project,
+    get_project_by_id,
+    list_projects_by_user_id,
+    update_project,
+)
+from app.db.session import get_db
+from app.models.auth import User
+from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
+
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _to_project_response(item) -> ProjectResponse:
+    return ProjectResponse(
+        id=item.id,
+        user_id=item.user_id,
+        sort_order=item.sort_order,
+        title=item.title,
+        date_range=item.date_range,
+        github_url=item.github_url,
+        tech_stack=item.tech_stack,
+        bullets=item.bullets,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+@router.get("", response_model=list[ProjectResponse])
+async def list_projects_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProjectResponse]:
+    projects = await list_projects_by_user_id(db, current_user.id)
+    return [_to_project_response(item) for item in projects]
+
+
+@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+async def create_project_endpoint(
+    data: ProjectCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectResponse:
+    payload = data.model_dump(mode="json")
+    sort_order = payload.pop("sort_order", None)
+    project = await create_project(db, current_user.id, payload, sort_order)
+    return _to_project_response(project)
+
+
+@router.patch("/{project_id}", response_model=ProjectResponse)
+async def update_project_endpoint(
+    project_id: str,
+    data: ProjectUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectResponse:
+    project = await get_project_by_id(db, current_user.id, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    payload = data.model_dump(mode="json", exclude_unset=True)
+    updated = await update_project(db, project, payload)
+    return _to_project_response(updated)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project_endpoint(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    project = await get_project_by_id(db, current_user.id, project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    await delete_project(db, project)
