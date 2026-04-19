@@ -412,6 +412,53 @@ Errors:
 
 Response `204 No Content`.
 
+### Autofill project from GitHub URL
+
+#### `POST /api/v1/projects/autofill`
+
+Use this endpoint to preview project details from a public GitHub repository before saving.
+
+Request:
+
+```json
+{
+  "github_url": "https://github.com/org/repo"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "title": "Career Engine Backend",
+  "date_range": "Jan 2024 - Present",
+  "github_url": "https://github.com/org/repo",
+  "tech_stack": "Python, FastAPI, PostgreSQL, Docker",
+  "bullets": [
+    "Built modular APIs for resume and project workflows with an async service architecture.",
+    "Implemented authenticated session and OAuth integrations to secure user-specific operations.",
+    "Improved maintainability by organizing typed schemas, CRUD layers, and reusable service modules."
+  ]
+}
+```
+
+Notes:
+
+- This endpoint does not create or update database records.
+- Use `POST /api/v1/projects` after user confirmation to save the autofilled content.
+- Title and date range are inferred from GitHub README and commit history.
+- Tech stack and bullet points are generated from repository code scan via LangChain GitHub loader + configured LLM provider.
+- `GITHUB_TOKEN` must be configured for repository code scanning in the LangChain loader.
+- Default LLM provider is Mistral (`PROJECT_AUTOFILL_LLM_PROVIDER=mistral`) and can be switched to OpenAI or Gemini.
+
+Errors:
+
+- `422` for invalid or non-GitHub URL input.
+- `404` when repository is not found or inaccessible.
+- `429` when GitHub API rate limit is reached.
+- `503` when selected LLM provider key is missing.
+- `502` for upstream GitHub/LLM failures.
+
 ## Resume from Scratch
 
 The resume flow remains independent and unchanged: frontend still sends complete resume payloads directly when creating/updating resumes.

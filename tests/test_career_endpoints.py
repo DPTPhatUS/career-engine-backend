@@ -3,6 +3,7 @@ from collections.abc import Generator
 from types import SimpleNamespace
 
 import pytest
+from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_current_user
@@ -151,6 +152,64 @@ def test_list_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPat
     body = response.json()
     assert len(body) == 1
     assert body[0]["id"] == "project-1"
+
+
+def test_autofill_project_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_autofill_project_from_github(github_url: str, settings):
+        assert github_url == "https://github.com/org/repo"
+        return {
+            "title": "Career Engine",
+            "date_range": "Jan 2024 - Present",
+            "github_url": github_url,
+            "tech_stack": "FastAPI, PostgreSQL, Docker",
+            "bullets": [
+                "Built modular backend APIs for resume and project workflows.",
+                "Implemented authentication and session management using OAuth and secure cookies.",
+                "Improved developer productivity with typed schemas and structured service layers.",
+            ],
+        }
+
+    monkeypatch.setattr(
+        projects_endpoints,
+        "autofill_project_from_github",
+        fake_autofill_project_from_github,
+    )
+
+    response = client.post(
+        "/api/v1/projects/autofill",
+        json={"github_url": "https://github.com/org/repo"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Career Engine"
+    assert body["date_range"] == "Jan 2024 - Present"
+    assert body["github_url"] == "https://github.com/org/repo"
+    assert len(body["bullets"]) == 3
+
+
+def test_autofill_project_maps_service_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_autofill_project_from_github(github_url: str, settings):
+        raise projects_endpoints.ProjectAutofillError(
+            "Only github.com repository URLs are supported.",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    monkeypatch.setattr(
+        projects_endpoints,
+        "autofill_project_from_github",
+        fake_autofill_project_from_github,
+    )
+
+    response = client.post(
+        "/api/v1/projects/autofill",
+        json={"github_url": "https://gitlab.com/org/repo"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json() == {"detail": "Only github.com repository URLs are supported."}
 
 
 def test_delete_project_no_content(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,6 +30,23 @@ class Settings(BaseSettings):
             "https://www.googleapis.com/auth/userinfo.profile",
         ]
     )
+
+    github_api_base_url: str = "https://api.github.com"
+    github_token: str = ""
+
+    project_autofill_llm_provider: Literal["mistral", "openai", "gemini"] = "mistral"
+    project_autofill_mistral_model: str = "mistral-small-latest"
+    project_autofill_openai_model: str = "gpt-5-nano"
+    project_autofill_gemini_model: str = "gemini-2.5-flash"
+    project_autofill_llm_temperature: float = 0.2
+    project_autofill_llm_timeout_seconds: int = 45
+    project_autofill_http_timeout_seconds: int = 20
+    project_autofill_max_files: int = 60
+    project_autofill_max_chars: int = 120000
+
+    mistral_api_key: str = ""
+    openai_api_key: str = ""
+    gemini_api_key: str = ""
 
     session_cookie_name: str = "ce_session"
     session_ttl_seconds: int = 3600

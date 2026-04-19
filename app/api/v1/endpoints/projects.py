@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import Settings, get_settings
 from app.crud.project import (
     create_project,
     delete_project,
@@ -11,7 +12,14 @@ from app.crud.project import (
 )
 from app.db.session import get_db
 from app.models.auth import User
-from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
+from app.schemas.project import (
+    ProjectAutofillRequest,
+    ProjectAutofillResponse,
+    ProjectCreateRequest,
+    ProjectResponse,
+    ProjectUpdateRequest,
+)
+from app.services.project_autofill import ProjectAutofillError, autofill_project_from_github
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -29,6 +37,22 @@ def _to_project_response(item) -> ProjectResponse:
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
+
+
+@router.post("/autofill", response_model=ProjectAutofillResponse)
+async def autofill_project_endpoint(
+    data: ProjectAutofillRequest,
+    current_user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> ProjectAutofillResponse:
+    _ = current_user
+
+    try:
+        payload = await autofill_project_from_github(str(data.github_url), settings)
+    except ProjectAutofillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return ProjectAutofillResponse(**payload)
 
 
 @router.get("", response_model=list[ProjectResponse])

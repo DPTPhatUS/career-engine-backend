@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import HttpUrl
+from pydantic import BaseModel, HttpUrl
 
 from app.schemas.resume import ProjectItem
 
@@ -24,3 +24,11 @@ class ProjectResponse(ProjectItem):
     sort_order: int
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectAutofillRequest(BaseModel):
+    github_url: HttpUrl
+
+
+class ProjectAutofillResponse(ProjectItem):
+    pass
