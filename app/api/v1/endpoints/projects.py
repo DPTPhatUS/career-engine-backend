@@ -19,7 +19,7 @@ from app.schemas.project import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
-from app.services.project_autofill import ProjectAutofillError, autofill_project_from_github
+from app.services.project_autofill import GithubLoaderError, autofill_project_from_github
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -49,7 +49,7 @@ async def autofill_project_endpoint(
 
     try:
         payload = await autofill_project_from_github(str(data.github_url), settings)
-    except ProjectAutofillError as exc:
+    except GithubLoaderError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return ProjectAutofillResponse(**payload)

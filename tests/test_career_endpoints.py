@@ -192,7 +192,7 @@ def test_autofill_project_maps_service_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake_autofill_project_from_github(github_url: str, settings):
-        raise projects_endpoints.ProjectAutofillError(
+        raise projects_endpoints.GithubLoaderError(
             "Only github.com repository URLs are supported.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )

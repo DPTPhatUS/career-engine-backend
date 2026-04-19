@@ -3,11 +3,11 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import status
 
-from app.services.project_autofill import (
-    ProjectAutofillError,
+from app.services.project_autofill import normalize_generation_output
+from app.services.github_loader import (
+    GithubLoaderError,
     derive_project_title,
     format_project_date_range,
-    normalize_generation_output,
     parse_github_repo_url,
 )
 
@@ -19,7 +19,7 @@ def test_parse_github_repo_url_supports_git_suffix() -> None:
 
 
 def test_parse_github_repo_url_rejects_non_github_host() -> None:
-    with pytest.raises(ProjectAutofillError) as exc:
+    with pytest.raises(GithubLoaderError) as exc:
         parse_github_repo_url("https://gitlab.com/example/repo")
 
     assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
