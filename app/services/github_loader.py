@@ -172,7 +172,9 @@ async def load_repo_context(snapshot: RepoSnapshot, settings: Settings) -> str:
 
 def derive_project_title(repo_name: str, readme_text: str) -> str:
     if readme_text:
-        match = re.search(r"^\s*#\s+(.+?)\s*$", readme_text, flags=re.MULTILINE)
+        lines = readme_text.splitlines()
+        first_line = lines[0] if lines else readme_text
+        match = re.match(r"^\s*#\s+(.+?)\s*$", first_line)
         if match:
             heading = _clean_markdown_title(match.group(1))
             if heading:

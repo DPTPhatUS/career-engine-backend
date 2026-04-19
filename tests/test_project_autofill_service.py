@@ -34,6 +34,15 @@ def test_derive_project_title_prefers_readme_heading() -> None:
     assert title == "Career Engine Backend"
 
 
+def test_derive_project_title_uses_only_first_readme_line() -> None:
+    title = derive_project_title(
+        "career-engine",
+        "Project details\n# Career Engine from later heading",
+    )
+
+    assert title == "Career Engine"
+
+
 def test_format_project_date_range_uses_present_for_current_month() -> None:
     start_date = datetime(2025, 1, 12, tzinfo=timezone.utc)
     end_date = datetime(2026, 4, 3, tzinfo=timezone.utc)
