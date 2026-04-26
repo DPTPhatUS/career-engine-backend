@@ -17,6 +17,19 @@ async def get_project_by_id(db: AsyncSession, user_id: str, project_id: str) -> 
     return await db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
 
 
+async def list_projects_by_ids(db: AsyncSession, user_id: str, project_ids: list[str]) -> list[Project]:
+    if not project_ids:
+        return []
+
+    result = await db.scalars(
+        select(Project).where(Project.user_id == user_id, Project.id.in_(project_ids))
+    )
+    projects = list(result)
+    project_by_id = {project.id: project for project in projects}
+
+    return [project_by_id[project_id] for project_id in project_ids if project_id in project_by_id]
+
+
 async def create_project(db: AsyncSession, user_id: str, data: dict, sort_order: int | None) -> Project:
     next_sort_order = sort_order
     if next_sort_order is None:

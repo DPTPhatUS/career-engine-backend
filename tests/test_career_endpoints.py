@@ -212,6 +212,131 @@ def test_autofill_project_maps_service_error(
     assert response.json() == {"detail": "Only github.com repository URLs are supported."}
 
 
+def test_tailor_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_tailor_projects_for_job(
+        *,
+        db,
+        user_id: str,
+        project_ids: list[str],
+        job_title: str,
+        job_description: str,
+        job_requirements: str,
+        settings,
+    ):
+        _ = (db, settings)
+        assert user_id == "user-1"
+        assert project_ids == ["project-1", "project-2"]
+        assert job_title == "Backend Engineer"
+        assert job_description == "Build scalable APIs"
+        assert job_requirements == "FastAPI, PostgreSQL, testing"
+
+        return {
+            "tailored_projects": [
+                {
+                    "project_id": "project-1",
+                    "title": "Career Engine",
+                    "date_range": "Jan 2024 - Present",
+                    "github_url": "https://github.com/org/repo",
+                    "tech_stack": "Python, FastAPI, PostgreSQL",
+                    "bullets": [
+                        "Built scalable backend APIs aligned to job requirements.",
+                        "Implemented robust persistence and query flows for resume data.",
+                        "Improved reliability with focused tests and modular service design.",
+                    ],
+                }
+            ],
+            "skipped_projects": [
+                {
+                    "project_id": "project-2",
+                    "reason_code": "missing_github_url",
+                    "detail": "Project has no GitHub URL, so tailoring was skipped.",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        projects_endpoints,
+        "tailor_projects_for_job",
+        fake_tailor_projects_for_job,
+    )
+
+    response = client.post(
+        "/api/v1/projects/tailor",
+        json={
+            "job_title": "Backend Engineer",
+            "job_description": "Build scalable APIs",
+            "job_requirements": "FastAPI, PostgreSQL, testing",
+            "project_ids": ["project-1", "project-2"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["tailored_projects"]) == 1
+    assert body["tailored_projects"][0]["project_id"] == "project-1"
+    assert body["skipped_projects"][0]["project_id"] == "project-2"
+
+
+def test_tailor_projects_rejects_more_than_five_ids(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/projects/tailor",
+        json={
+            "job_title": "Backend Engineer",
+            "job_description": "Build scalable APIs",
+            "job_requirements": "FastAPI, PostgreSQL, testing",
+            "project_ids": [
+                "project-1",
+                "project-2",
+                "project-3",
+                "project-4",
+                "project-5",
+                "project-6",
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_tailor_projects_maps_service_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_tailor_projects_for_job(
+        *,
+        db,
+        user_id: str,
+        project_ids: list[str],
+        job_title: str,
+        job_description: str,
+        job_requirements: str,
+        settings,
+    ):
+        _ = (db, user_id, project_ids, job_title, job_description, job_requirements, settings)
+        raise projects_endpoints.GithubLoaderError(
+            "Selected projects were not found for current user: project-2.",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    monkeypatch.setattr(
+        projects_endpoints,
+        "tailor_projects_for_job",
+        fake_tailor_projects_for_job,
+    )
+
+    response = client.post(
+        "/api/v1/projects/tailor",
+        json={
+            "job_title": "Backend Engineer",
+            "job_description": "Build scalable APIs",
+            "job_requirements": "FastAPI, PostgreSQL, testing",
+            "project_ids": ["project-1", "project-2"],
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json() == {
+        "detail": "Selected projects were not found for current user: project-2."
+    }
+
+
 def test_delete_project_no_content(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     project = SimpleNamespace(id="project-1", user_id="user-1")
     called = {"deleted": False}

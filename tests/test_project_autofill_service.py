@@ -1,11 +1,21 @@
+import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import status
+from pydantic import ValidationError
 
-from app.services.project_autofill import normalize_generation_output
+from app.schemas.project import TailorProjectsRequest
+from app.services.project_autofill import (
+    generate_job_tailored_project_summary,
+    normalize_generation_output,
+    tailor_projects_for_job,
+)
 from app.services.github_loader import (
     GithubLoaderError,
+    RepoCoordinates,
+    RepoSnapshot,
     derive_project_title,
     format_project_date_range,
     parse_github_repo_url,
@@ -75,4 +85,192 @@ def test_normalize_generation_output_falls_back_when_json_invalid() -> None:
     tech_stack, bullets = normalize_generation_output("invalid", ["FastAPI", "PostgreSQL"], "Career Engine")
 
     assert tech_stack == "FastAPI, PostgreSQL"
+    assert len(bullets) == 3
+
+
+def test_tailor_projects_request_rejects_duplicate_project_ids() -> None:
+    with pytest.raises(ValidationError):
+        TailorProjectsRequest(
+            job_title="Backend Engineer",
+            job_description="Build APIs",
+            job_requirements="FastAPI, PostgreSQL",
+            project_ids=["project-1", "project-1"],
+        )
+
+
+def test_tailor_projects_for_job_skips_missing_github_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    project = SimpleNamespace(
+        id="project-1",
+        title="Career Engine",
+        date_range="Jan 2024 - Present",
+        github_url=None,
+        tech_stack="FastAPI, PostgreSQL",
+        bullets=["Built APIs"],
+    )
+
+    async def fake_list_projects_by_ids(db, user_id: str, project_ids: list[str]):
+        return [project]
+
+    monkeypatch.setattr("app.services.project_autofill.list_projects_by_ids", fake_list_projects_by_ids)
+    monkeypatch.setattr("app.services.project_autofill._build_chat_model", lambda settings: object())
+
+    payload = asyncio.run(
+        tailor_projects_for_job(
+            db=object(),
+            user_id="user-1",
+            project_ids=["project-1"],
+            job_title="Backend Engineer",
+            job_description="Build backend services",
+            job_requirements="FastAPI and SQL",
+            settings=SimpleNamespace(),
+        )
+    )
+
+    assert payload["tailored_projects"] == []
+    assert payload["skipped_projects"] == [
+        {
+            "project_id": "project-1",
+            "reason_code": "missing_github_url",
+            "detail": "Project has no GitHub URL, so tailoring was skipped.",
+        }
+    ]
+
+
+def test_tailor_projects_for_job_raises_for_missing_project_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = SimpleNamespace(
+        id="project-1",
+        title="Career Engine",
+        date_range="Jan 2024 - Present",
+        github_url="https://github.com/org/repo",
+        tech_stack="FastAPI, PostgreSQL",
+        bullets=["Built APIs"],
+    )
+
+    async def fake_list_projects_by_ids(db, user_id: str, project_ids: list[str]):
+        return [project]
+
+    monkeypatch.setattr("app.services.project_autofill.list_projects_by_ids", fake_list_projects_by_ids)
+
+    with pytest.raises(GithubLoaderError) as exc:
+        asyncio.run(
+            tailor_projects_for_job(
+                db=object(),
+                user_id="user-1",
+                project_ids=["project-1", "project-2"],
+                job_title="Backend Engineer",
+                job_description="Build backend services",
+                job_requirements="FastAPI and SQL",
+                settings=SimpleNamespace(),
+            )
+        )
+
+    assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "project-2" in exc.value.detail
+
+
+def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    project_ok = SimpleNamespace(
+        id="project-1",
+        title="Career Engine",
+        date_range="Jan 2024 - Present",
+        github_url="https://github.com/org/repo",
+        tech_stack="FastAPI, PostgreSQL",
+        bullets=["Built APIs"],
+    )
+    project_skip = SimpleNamespace(
+        id="project-2",
+        title="No Repo Project",
+        date_range="Feb 2024 - Mar 2024",
+        github_url=None,
+        tech_stack=None,
+        bullets=[],
+    )
+
+    async def fake_list_projects_by_ids(db, user_id: str, project_ids: list[str]):
+        return [project_ok, project_skip]
+
+    def fake_parse_github_repo_url(github_url: str) -> RepoCoordinates:
+        _ = github_url
+        return RepoCoordinates(owner="org", repo="repo")
+
+    async def fake_fetch_repo_snapshot(coordinates: RepoCoordinates, settings) -> RepoSnapshot:
+        _ = settings
+        return RepoSnapshot(
+            coordinates=coordinates,
+            html_url="https://github.com/org/repo",
+            title="Career Engine",
+            date_range="Jan 2024 - Present",
+            readme_text="# Career Engine",
+            default_branch="main",
+            stack_fallback=["Python", "FastAPI"],
+        )
+
+    async def fake_load_repo_context(snapshot: RepoSnapshot, settings) -> str:
+        _ = (snapshot, settings)
+        return "def app():\n    return True"
+
+    class FakeChatModel:
+        def invoke(self, _messages):
+            return SimpleNamespace(
+                content='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
+            )
+
+    monkeypatch.setattr("app.services.project_autofill.list_projects_by_ids", fake_list_projects_by_ids)
+    monkeypatch.setattr("app.services.project_autofill.parse_github_repo_url", fake_parse_github_repo_url)
+    monkeypatch.setattr("app.services.project_autofill.fetch_repo_snapshot", fake_fetch_repo_snapshot)
+    monkeypatch.setattr("app.services.project_autofill.load_repo_context", fake_load_repo_context)
+    monkeypatch.setattr("app.services.project_autofill._build_chat_model", lambda settings: FakeChatModel())
+
+    payload = asyncio.run(
+        tailor_projects_for_job(
+            db=object(),
+            user_id="user-1",
+            project_ids=["project-1", "project-2"],
+            job_title="Backend Engineer",
+            job_description="Build backend services",
+            job_requirements="FastAPI and SQL",
+            settings=SimpleNamespace(),
+        )
+    )
+
+    assert len(payload["tailored_projects"]) == 1
+    assert payload["tailored_projects"][0]["project_id"] == "project-1"
+    assert len(payload["tailored_projects"][0]["bullets"]) == 3
+    assert payload["skipped_projects"][0]["project_id"] == "project-2"
+    assert payload["skipped_projects"][0]["reason_code"] == "missing_github_url"
+
+
+def test_generate_job_tailored_summary_falls_back_when_json_invalid() -> None:
+    class FakeChatModel:
+        def invoke(self, _messages):
+            return SimpleNamespace(content="not-json")
+
+    snapshot = RepoSnapshot(
+        coordinates=RepoCoordinates(owner="org", repo="repo"),
+        html_url="https://github.com/org/repo",
+        title="Career Engine",
+        date_range="Jan 2024 - Present",
+        readme_text="# Career Engine",
+        default_branch="main",
+        stack_fallback=["Python"],
+    )
+
+    tech_stack, bullets = asyncio.run(
+        generate_job_tailored_project_summary(
+            snapshot=snapshot,
+            project_title="Career Engine",
+            project_date_range="Jan 2024 - Present",
+            existing_tech_stack="FastAPI, Python",
+            existing_bullets=["Built APIs"],
+            code_context="def run():\n    return True",
+            job_title="Backend Engineer",
+            job_description="Build backend services",
+            job_requirements="FastAPI and SQL",
+            chat_model=FakeChatModel(),
+        )
+    )
+
+    assert tech_stack == "FastAPI, Python"
     assert len(bullets) == 3

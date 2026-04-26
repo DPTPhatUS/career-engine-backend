@@ -100,13 +100,17 @@ Base path: `/api/v1`
 	- Starts Google reconnect flow for already logged-in user.
 6. `GET /auth/google/callback?state=...&code=...`
 	- Stores refreshed encrypted Google credentials for the logged-in user.
-7. `POST /resumes`
+7. `POST /projects/autofill`
+	- Generates project suggestions from a GitHub repository URL.
+8. `POST /projects/tailor`
+	- Tailors selected saved projects to a target job using GitHub scan + LLM generation.
+9. `POST /resumes`
 	- Requires authenticated session cookie.
 	- Creates a resume record.
-8. `GET /resumes/{resume_id}`
-9. `PATCH /resumes/{resume_id}`
-10. `DELETE /resumes/{resume_id}`
-11. `POST /resumes/{resume_id}/generate-doc`
+10. `GET /resumes/{resume_id}`
+11. `PATCH /resumes/{resume_id}`
+12. `DELETE /resumes/{resume_id}`
+13. `POST /resumes/{resume_id}/generate-doc`
 	- Creates a new Google Doc resume from stored payload.
 
 Generated document URL format:

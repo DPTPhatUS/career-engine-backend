@@ -17,9 +17,15 @@ from app.schemas.project import (
     ProjectAutofillResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    TailorProjectsRequest,
+    TailorProjectsResponse,
     ProjectUpdateRequest,
 )
-from app.services.project_autofill import GithubLoaderError, autofill_project_from_github
+from app.services.project_autofill import (
+    GithubLoaderError,
+    autofill_project_from_github,
+    tailor_projects_for_job,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -53,6 +59,29 @@ async def autofill_project_endpoint(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return ProjectAutofillResponse(**payload)
+
+
+@router.post("/tailor", response_model=TailorProjectsResponse)
+async def tailor_projects_endpoint(
+    data: TailorProjectsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> TailorProjectsResponse:
+    try:
+        payload = await tailor_projects_for_job(
+            db=db,
+            user_id=current_user.id,
+            project_ids=data.project_ids,
+            job_title=data.job_title,
+            job_description=data.job_description,
+            job_requirements=data.job_requirements,
+            settings=settings,
+        )
+    except GithubLoaderError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return TailorProjectsResponse(**payload)
 
 
 @router.get("", response_model=list[ProjectResponse])

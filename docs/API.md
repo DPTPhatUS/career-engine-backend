@@ -459,6 +459,78 @@ Errors:
 - `503` when selected LLM provider key is missing.
 - `502` for upstream GitHub/LLM failures.
 
+### Tailor selected projects for a target job
+
+#### `POST /api/v1/projects/tailor`
+
+Use this endpoint on the resume setup screen when a user provides a target job and selects projects from their saved list.
+
+The backend scans each selected project's GitHub repository, then generates job-aligned project bullets and tech stack suggestions.
+
+Request:
+
+```json
+{
+  "job_title": "Backend Engineer",
+  "job_description": "Build and maintain scalable backend APIs...",
+  "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD",
+  "project_ids": ["project-1", "project-2"]
+}
+```
+
+Validation rules:
+
+- `project_ids` must contain between 1 and 5 items.
+- `project_ids` must not contain duplicates.
+- Job text fields must be non-empty.
+
+Response `200`:
+
+```json
+{
+  "tailored_projects": [
+    {
+      "project_id": "project-1",
+      "title": "Career Engine",
+      "date_range": "Jan 2024 - Present",
+      "github_url": "https://github.com/org/repo",
+      "tech_stack": "Python, FastAPI, PostgreSQL",
+      "bullets": [
+        "Built scalable backend APIs aligned to role requirements and reliability goals.",
+        "Implemented robust persistence and query paths for resume and profile workflows.",
+        "Improved delivery quality through structured testing and maintainable service modules."
+      ]
+    }
+  ],
+  "skipped_projects": [
+    {
+      "project_id": "project-2",
+      "reason_code": "missing_github_url",
+      "detail": "Project has no GitHub URL, so tailoring was skipped."
+    }
+  ]
+}
+```
+
+Notes:
+
+- This endpoint is preview-only and does not update project records.
+- This endpoint does not create a resume record.
+- Frontend should use `tailored_projects` to prefill the next resume-building screen, then call existing resume create/update endpoints.
+- Partial success is supported: one or more projects can be skipped while others are successfully tailored.
+
+Warning reason codes in `skipped_projects`:
+
+- `missing_github_url`
+- `github_scan_failed`
+- `generation_failed`
+
+Errors:
+
+- `422` for invalid input (including unknown or unowned project IDs).
+- `503` for missing LLM provider configuration/dependencies.
+- `502` for non-recoverable upstream failures.
+
 ## Resume from Scratch
 
 The resume flow remains independent and unchanged: frontend still sends complete resume payloads directly when creating/updating resumes.
