@@ -7,6 +7,7 @@ from app.crud.resume import (
     create_resume as create_resume_row,
     delete_resume as delete_resume_row,
     get_resume_by_id,
+    list_resumes_by_user_id,
     update_resume as update_resume_row,
 )
 from app.db.session import get_db
@@ -32,6 +33,15 @@ def _to_resume_response(item) -> ResumeResponse:
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
+
+
+@router.get("", response_model=list[ResumeResponse])
+async def list_resumes_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ResumeResponse]:
+    resumes = await list_resumes_by_user_id(db, current_user.id)
+    return [_to_resume_response(item) for item in resumes]
 
 
 @router.post("", response_model=ResumeResponse, status_code=status.HTTP_201_CREATED)

@@ -12,6 +12,13 @@ async def create_resume(db: AsyncSession, user_id: str, title: str, payload: dic
     return resume
 
 
+async def list_resumes_by_user_id(db: AsyncSession, user_id: str) -> list[Resume]:
+    result = await db.scalars(
+        select(Resume).where(Resume.user_id == user_id).order_by(Resume.created_at.desc())
+    )
+    return list(result)
+
+
 async def get_resume_by_id(db: AsyncSession, user_id: str, resume_id: str) -> Resume | None:
     return await db.scalar(select(Resume).where(Resume.id == resume_id, Resume.user_id == user_id))
 

@@ -10,6 +10,7 @@ from app.api.deps import get_current_user
 from app.api.v1.endpoints import educations as educations_endpoints
 from app.api.v1.endpoints import profile as profile_endpoints
 from app.api.v1.endpoints import projects as projects_endpoints
+from app.api.v1.endpoints import resumes as resumes_endpoints
 from app.db.session import get_db
 from app.main import app
 
@@ -152,6 +153,50 @@ def test_list_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPat
     body = response.json()
     assert len(body) == 1
     assert body[0]["id"] == "project-1"
+
+
+def test_list_resumes_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "personal_info": {
+            "full_name": "Ada Lovelace",
+            "email": "ada@example.com",
+            "phone": "+1 555 0100",
+            "address": "City, ST",
+            "github_label": "GitHub",
+            "github_url": "https://github.com/ada",
+        },
+        "education": [],
+        "projects": [],
+        "skills": [],
+    }
+
+    async def fake_list_resumes_by_user_id(db, user_id: str):
+        return [
+            SimpleNamespace(
+                id="resume-2",
+                user_id=user_id,
+                title="Senior Resume",
+                payload=payload,
+                created_at=_ts(),
+                updated_at=_ts(),
+            ),
+            SimpleNamespace(
+                id="resume-1",
+                user_id=user_id,
+                title="Junior Resume",
+                payload=payload,
+                created_at=_ts(),
+                updated_at=_ts(),
+            ),
+        ]
+
+    monkeypatch.setattr(resumes_endpoints, "list_resumes_by_user_id", fake_list_resumes_by_user_id)
+
+    response = client.get("/api/v1/resumes")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert body[0]["id"] == "resume-2"
 
 
 def test_autofill_project_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

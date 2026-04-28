@@ -602,6 +602,30 @@ Optional fields: `github_url`, `tech_stack`. `bullets` defaults to `[]`.
 { "label": "Languages", "values": "Python, TypeScript" }
 ```
 
+### List resumes
+
+#### `GET /api/v1/resumes`
+
+Response `200`:
+
+```json
+[
+  {
+    "id": "<resume_id>",
+    "user_id": "<user_id>",
+    "title": "Software Engineer Resume",
+    "payload": { "...": "..." },
+    "created_at": "2026-01-01T12:34:56.000Z",
+    "updated_at": "2026-01-01T12:34:56.000Z"
+  }
+]
+```
+
+Notes:
+
+- Returns resumes owned by the current user only.
+- Ordered newest-first by `created_at`.
+
 ### Create a resume
 
 #### `POST /api/v1/resumes`
