@@ -88,6 +88,50 @@ def test_normalize_generation_output_falls_back_when_json_invalid() -> None:
     assert len(bullets) == 3
 
 
+def test_normalize_generation_output_uses_fallback_bullets_when_empty() -> None:
+    raw_text = '{"tech_stack": "Python", "bullets": []}'
+
+    tech_stack, bullets = normalize_generation_output(
+        raw_text,
+        ["Git"],
+        "Career Engine",
+        fallback_bullets=[
+            "Delivered reliable project workflows",
+            "Improved resume data quality",
+            "Automated project status updates",
+        ],
+    )
+
+    assert tech_stack == "Python"
+    assert bullets == [
+        "Delivered reliable project workflows.",
+        "Improved resume data quality.",
+        "Automated project status updates.",
+    ]
+
+
+def test_normalize_generation_output_ignores_fallback_bullets_when_present() -> None:
+    raw_text = '{"tech_stack": "Python", "bullets": ["Built async APIs"]}'
+    fallback_bullets = [
+        "Delivered reliable project workflows",
+        "Improved resume data quality",
+        "Automated project status updates",
+    ]
+
+    _tech_stack, bullets = normalize_generation_output(
+        raw_text,
+        ["Git"],
+        "Career Engine",
+        fallback_bullets=fallback_bullets,
+    )
+
+    assert len(bullets) == 3
+    assert bullets[0] == "Built async APIs."
+    assert "Delivered reliable project workflows." not in bullets
+    assert "Improved resume data quality." not in bullets
+    assert "Automated project status updates." not in bullets
+
+
 def test_tailor_projects_request_rejects_duplicate_project_ids() -> None:
     with pytest.raises(ValidationError):
         TailorProjectsRequest(

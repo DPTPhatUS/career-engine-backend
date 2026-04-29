@@ -207,8 +207,6 @@ async def generate_job_tailored_project_summary(
         snapshot=snapshot,
         project_title=project_title,
         project_date_range=project_date_range,
-        existing_tech_stack=existing_tech_stack,
-        existing_bullets=existing_bullets,
         code_context=code_context,
         job_title=job_title,
         job_description=job_description,
@@ -225,18 +223,24 @@ async def generate_job_tailored_project_summary(
     raw_text = _message_to_text(response)
     fallback_stack = _merge_stack_fallback(existing_tech_stack, snapshot.stack_fallback)
     normalized_title = project_title.strip() if project_title.strip() else snapshot.title
-    return normalize_generation_output(raw_text, fallback_stack, normalized_title)
+    return normalize_generation_output(
+        raw_text,
+        fallback_stack,
+        normalized_title,
+        fallback_bullets=existing_bullets,
+    )
 
 
 def normalize_generation_output(
     raw_text: str,
     fallback_stack: list[str],
     repo_title: str,
+    fallback_bullets: list[str] | None = None,
 ) -> tuple[str, list[str]]:
     payload = _extract_json_payload(raw_text)
 
     tech_stack = _normalize_tech_stack(payload.get("tech_stack"), fallback_stack)
-    bullets = _normalize_bullets(payload.get("bullets"), repo_title)
+    bullets = _normalize_bullets(payload.get("bullets"), repo_title, fallback_bullets)
 
     return tech_stack, bullets
 
@@ -340,8 +344,6 @@ def _build_job_tailor_user_prompt(
     snapshot: RepoSnapshot,
     project_title: str,
     project_date_range: str,
-    existing_tech_stack: str | None,
-    existing_bullets: list[str],
     code_context: str,
     job_title: str,
     job_description: str,
@@ -349,7 +351,6 @@ def _build_job_tailor_user_prompt(
 ) -> str:
     readme_excerpt = (snapshot.readme_text or "").strip()[:5000]
     code_excerpt = code_context.strip()[: max(0, 120000)]
-    bullets_excerpt = "\n".join(f"- {bullet}" for bullet in existing_bullets if bullet.strip())
     fallback_stack = ", ".join(snapshot.stack_fallback) if snapshot.stack_fallback else "(No stack hints)"
 
     return (
@@ -357,11 +358,9 @@ def _build_job_tailor_user_prompt(
         f"- Job title: {job_title}\n"
         f"- Job description:\n{job_description}\n\n"
         f"- Job requirements:\n{job_requirements}\n\n"
-        "Existing project profile:\n"
+        "Project profile:\n"
         f"- Project title: {project_title}\n"
         f"- Date range: {project_date_range}\n"
-        f"- Existing tech stack: {existing_tech_stack or '(Not provided)'}\n"
-        f"- Existing bullets:\n{bullets_excerpt or '(No existing bullets provided)'}\n\n"
         "Repository evidence:\n"
         f"- Name: {snapshot.coordinates.owner}/{snapshot.coordinates.repo}\n"
         f"- Default branch: {snapshot.default_branch}\n"
@@ -492,7 +491,11 @@ def _normalize_tech_stack(raw_stack: Any, fallback_stack: list[str]) -> str:
     return ", ".join(normalized[:10])
 
 
-def _normalize_bullets(raw_bullets: Any, repo_title: str) -> list[str]:
+def _normalize_bullets(
+    raw_bullets: Any,
+    repo_title: str,
+    fallback_bullets: list[str] | None = None,
+) -> list[str]:
     candidates: list[str] = []
 
     if isinstance(raw_bullets, str):
@@ -500,20 +503,28 @@ def _normalize_bullets(raw_bullets: Any, repo_title: str) -> list[str]:
     elif isinstance(raw_bullets, list):
         candidates.extend(str(item).strip() for item in raw_bullets if str(item).strip())
 
-    cleaned_bullets: list[str] = []
-    seen: set[str] = set()
-    for item in candidates:
-        cleaned = re.sub(r"^[-*\d\.)\s]+", "", item).strip()
-        if not cleaned:
-            continue
-        cleaned = cleaned.rstrip(".").strip()
-        if not cleaned:
-            continue
-        key = cleaned.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned_bullets.append(_finalize_sentence(cleaned))
+    def _clean_bullet_candidates(items: list[str]) -> list[str]:
+        cleaned_items: list[str] = []
+        seen_items: set[str] = set()
+        for raw_item in items:
+            cleaned = re.sub(r"^[-*\d\.)\s]+", "", str(raw_item)).strip()
+            if not cleaned:
+                continue
+            cleaned = cleaned.rstrip(".").strip()
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen_items:
+                continue
+            seen_items.add(key)
+            cleaned_items.append(_finalize_sentence(cleaned))
+        return cleaned_items
+
+    cleaned_bullets = _clean_bullet_candidates(candidates)
+
+    fallback_candidates: list[str] = []
+    if not cleaned_bullets and fallback_bullets:
+        fallback_candidates = _clean_bullet_candidates(list(fallback_bullets))
 
     fallback = [
         _finalize_sentence(
@@ -528,7 +539,8 @@ def _normalize_bullets(raw_bullets: Any, repo_title: str) -> list[str]:
     ]
 
     result: list[str] = []
-    for item in cleaned_bullets + fallback:
+    primary_candidates = cleaned_bullets or fallback_candidates
+    for item in primary_candidates + fallback:
         key = item.lower()
         if key in {existing.lower() for existing in result}:
             continue
