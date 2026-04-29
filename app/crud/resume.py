@@ -1,10 +1,15 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.resume import Resume
+from app.models.resume import GeneratedDocument, Resume
 
 
-async def create_resume(db: AsyncSession, user_id: str, title: str, payload: dict) -> Resume:
+async def create_resume(
+    db: AsyncSession,
+    user_id: str,
+    title: str,
+    payload: dict,
+) -> Resume:
     resume = Resume(user_id=user_id, title=title, payload=payload)
     db.add(resume)
     await db.commit()
@@ -36,3 +41,16 @@ async def update_resume(db: AsyncSession, resume: Resume, title: str | None, pay
 async def delete_resume(db: AsyncSession, resume: Resume) -> None:
     await db.delete(resume)
     await db.commit()
+
+
+async def get_generated_document_by_resume_id(
+    db: AsyncSession,
+    user_id: str,
+    resume_id: str,
+) -> GeneratedDocument | None:
+    return await db.scalar(
+        select(GeneratedDocument).where(
+            GeneratedDocument.resume_id == resume_id,
+            GeneratedDocument.user_id == user_id,
+        )
+    )

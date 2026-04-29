@@ -24,3 +24,28 @@ class GoogleDocsService:
             raise ValueError("Unable to derive append index from document body content.")
 
         return max(1, body_content[-1]["endIndex"] - 1)
+
+    def get_body_end_index(self, document_id: str) -> int:
+        document = self.service.documents().get(documentId=document_id).execute()
+        body_content = document.get("body", {}).get("content", [])
+
+        if not body_content or "endIndex" not in body_content[-1]:
+            raise ValueError("Unable to derive body end index from document body content.")
+
+        return body_content[-1]["endIndex"]
+
+    def clear_document_body(self, document_id: str) -> None:
+        end_index = self.get_body_end_index(document_id)
+        if end_index <= 1:
+            return
+        requests = [
+            {
+                "deleteContentRange": {
+                    "range": {
+                        "startIndex": 1,
+                        "endIndex": end_index - 1,
+                    }
+                }
+            }
+        ]
+        self.batch_update(document_id=document_id, requests=requests)

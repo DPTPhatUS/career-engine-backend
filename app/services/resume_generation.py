@@ -2,6 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.crud.resume import get_generated_document_by_resume_id
 from app.models.auth import User
 from app.models.resume import GeneratedDocument, Resume
 from app.schemas.resume import GenerateDocRequest, GenerateDocResponse, ResumePayload
@@ -22,6 +23,17 @@ async def generate_document_for_resume(
 
     creds = await get_google_credentials_for_user(db, user, settings)
     docs = GoogleDocsService(creds)
+
+    existing_doc = await get_generated_document_by_resume_id(db, user.id, resume.id)
+    if existing_doc:
+        docs.clear_document_body(existing_doc.document_id)
+        payload_model = ResumePayload.model_validate(resume.payload)
+        requests, _ = build_resume_requests(payload=payload_model, start_index=1)
+        docs.batch_update(document_id=existing_doc.document_id, requests=requests)
+        return GenerateDocResponse(
+            document_id=existing_doc.document_id,
+            document_url=existing_doc.document_url,
+        )
 
     title = request_data.document_title or resume.title
     document_id = docs.create_document(title=title)

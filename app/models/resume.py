@@ -24,7 +24,9 @@ class GeneratedDocument(Base):
     __tablename__ = "generated_documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    resume_id: Mapped[str] = mapped_column(ForeignKey("resumes.id", ondelete="CASCADE"), index=True)
+    resume_id: Mapped[str] = mapped_column(
+        ForeignKey("resumes.id", ondelete="CASCADE"), unique=True, index=True
+    )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     document_id: Mapped[str] = mapped_column(String(255), index=True)
     document_url: Mapped[str] = mapped_column(String(1000))
