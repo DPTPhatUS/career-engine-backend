@@ -36,18 +36,58 @@ class ProjectAutofillResponse(ProjectItem):
 
 
 class TailorProjectsRequest(BaseModel):
-    job_title: str = Field(min_length=1, max_length=200)
-    job_description: str = Field(min_length=1, max_length=8000)
-    job_requirements: str = Field(min_length=1, max_length=8000)
+    target_job_id: str | None = None
+    job_title: str | None = Field(default=None, min_length=1, max_length=200)
+    job_description: str | None = Field(default=None, min_length=1, max_length=8000)
+    job_requirements: str | None = Field(default=None, min_length=1, max_length=8000)
     project_ids: list[str] = Field(min_length=1, max_length=5)
+
+    @field_validator("target_job_id")
+    @classmethod
+    def _normalize_target_job_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("target_job_id must not be empty.")
+        return cleaned
 
     @field_validator("job_title", "job_description", "job_requirements")
     @classmethod
-    def _normalize_job_text(cls, value: str) -> str:
+    def _normalize_job_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("Field must not be empty.")
         return cleaned
+
+    @model_validator(mode="after")
+    def _validate_job_source(self) -> "TailorProjectsRequest":
+        has_target_job = bool(self.target_job_id)
+        has_job_fields = any(
+            field_value is not None for field_value in (self.job_title, self.job_description, self.job_requirements)
+        )
+
+        if has_target_job and has_job_fields:
+            raise ValueError("Provide either target_job_id or job fields, not both.")
+
+        if not has_target_job:
+            missing = [
+                name
+                for name, value in (
+                    ("job_title", self.job_title),
+                    ("job_description", self.job_description),
+                    ("job_requirements", self.job_requirements),
+                )
+                if value is None
+            ]
+            if missing:
+                raise ValueError(
+                    "job_title, job_description, and job_requirements are required when target_job_id is not provided."
+                )
+
+        return self
 
     @model_validator(mode="after")
     def _normalize_project_ids(self) -> "TailorProjectsRequest":

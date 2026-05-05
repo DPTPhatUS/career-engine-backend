@@ -90,6 +90,8 @@ async def tailor_projects_for_job(
     job_title: str,
     job_description: str,
     job_requirements: str,
+    company_name: str | None = None,
+    company_overview: str | None = None,
     settings: Settings,
 ) -> dict[str, Any]:
     projects = await list_projects_by_ids(db, user_id, project_ids)
@@ -112,6 +114,8 @@ async def tailor_projects_for_job(
                 job_title=job_title,
                 job_description=job_description,
                 job_requirements=job_requirements,
+                company_name=company_name,
+                company_overview=company_overview,
                 chat_model=chat_model,
                 settings=settings,
             )
@@ -138,6 +142,8 @@ async def _tailor_single_project(
     job_title: str,
     job_description: str,
     job_requirements: str,
+    company_name: str | None,
+    company_overview: str | None,
     chat_model: Any,
     settings: Settings,
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
@@ -171,6 +177,8 @@ async def _tailor_single_project(
             job_title=job_title,
             job_description=job_description,
             job_requirements=job_requirements,
+            company_name=company_name,
+            company_overview=company_overview,
             chat_model=chat_model,
         )
     except GithubLoaderError as exc:
@@ -201,6 +209,8 @@ async def generate_job_tailored_project_summary(
     job_title: str,
     job_description: str,
     job_requirements: str,
+    company_name: str | None = None,
+    company_overview: str | None = None,
     chat_model: Any,
 ) -> tuple[str, list[str]]:
     user_prompt = _build_job_tailor_user_prompt(
@@ -211,6 +221,8 @@ async def generate_job_tailored_project_summary(
         job_title=job_title,
         job_description=job_description,
         job_requirements=job_requirements,
+        company_name=company_name,
+        company_overview=company_overview,
     )
 
     response = await _invoke_chat_model(
@@ -348,16 +360,29 @@ def _build_job_tailor_user_prompt(
     job_title: str,
     job_description: str,
     job_requirements: str,
+    company_name: str | None,
+    company_overview: str | None,
 ) -> str:
     readme_excerpt = (snapshot.readme_text or "").strip()[:5000]
     code_excerpt = code_context.strip()[: max(0, 120000)]
     fallback_stack = ", ".join(snapshot.stack_fallback) if snapshot.stack_fallback else "(No stack hints)"
+
+    company_block = ""
+    if company_name or company_overview:
+        overview_text = company_overview or "(No overview provided)"
+        name_line = f"- Company name: {company_name}\n" if company_name else ""
+        company_block = (
+            "Company context:\n"
+            f"{name_line}"
+            f"- Company overview:\n{overview_text}\n\n"
+        )
 
     return (
         "Target job:\n"
         f"- Job title: {job_title}\n"
         f"- Job description:\n{job_description}\n\n"
         f"- Job requirements:\n{job_requirements}\n\n"
+        f"{company_block}"
         "Project profile:\n"
         f"- Project title: {project_title}\n"
         f"- Date range: {project_date_range}\n"

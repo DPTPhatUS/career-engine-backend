@@ -11,6 +11,8 @@ from app.api.v1.endpoints import educations as educations_endpoints
 from app.api.v1.endpoints import profile as profile_endpoints
 from app.api.v1.endpoints import projects as projects_endpoints
 from app.api.v1.endpoints import resumes as resumes_endpoints
+from app.api.v1.endpoints import target_companies as target_companies_endpoints
+from app.api.v1.endpoints import target_jobs as target_jobs_endpoints
 from app.db.session import get_db
 from app.main import app
 
@@ -127,6 +129,113 @@ def test_patch_education_not_found(client: TestClient, monkeypatch: pytest.Monke
     response = client.patch("/api/v1/educations/missing", json={"degree": "M.S."})
     assert response.status_code == 404
     assert response.json() == {"detail": "Education not found"}
+
+
+def test_list_target_companies_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_list_target_companies_by_user_id(db, user_id: str):
+        return [
+            SimpleNamespace(
+                id="company-1",
+                user_id=user_id,
+                sort_order=0,
+                name="Acme Corp",
+                company_url="https://acme.example",
+                overview="Builds developer tools.",
+                created_at=_ts(),
+                updated_at=_ts(),
+            )
+        ]
+
+    monkeypatch.setattr(
+        target_companies_endpoints,
+        "list_target_companies_by_user_id",
+        fake_list_target_companies_by_user_id,
+    )
+
+    response = client.get("/api/v1/target-companies")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == "company-1"
+
+
+def test_create_target_company_sends_payload_and_sort_order(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict = {}
+
+    async def fake_create_target_company(db, user_id: str, data: dict, sort_order: int | None):
+        captured["data"] = data
+        captured["sort_order"] = sort_order
+        return SimpleNamespace(
+            id="company-1",
+            user_id=user_id,
+            sort_order=0,
+            created_at=_ts(),
+            updated_at=_ts(),
+            **data,
+        )
+
+    monkeypatch.setattr(
+        target_companies_endpoints,
+        "create_target_company",
+        fake_create_target_company,
+    )
+
+    response = client.post(
+        "/api/v1/target-companies",
+        json={
+            "name": "Acme Corp",
+            "company_url": "https://acme.example",
+            "overview": "Builds developer tools.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert captured["sort_order"] is None
+    assert captured["data"]["name"] == "Acme Corp"
+
+
+def test_create_target_job_sends_payload_and_sort_order(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict = {}
+
+    async def fake_get_target_company_by_id(db, user_id: str, company_id: str):
+        return SimpleNamespace(id=company_id, user_id=user_id)
+
+    async def fake_create_target_job(db, user_id: str, data: dict, sort_order: int | None):
+        captured["data"] = data
+        captured["sort_order"] = sort_order
+        return SimpleNamespace(
+            id="job-1",
+            user_id=user_id,
+            sort_order=0,
+            created_at=_ts(),
+            updated_at=_ts(),
+            **data,
+        )
+
+    monkeypatch.setattr(
+        target_jobs_endpoints,
+        "get_target_company_by_id",
+        fake_get_target_company_by_id,
+    )
+    monkeypatch.setattr(target_jobs_endpoints, "create_target_job", fake_create_target_job)
+
+    response = client.post(
+        "/api/v1/target-jobs",
+        json={
+            "company_id": "company-1",
+            "title": "Backend Engineer",
+            "job_description": "Build backend services",
+            "job_requirements": "FastAPI, PostgreSQL",
+        },
+    )
+
+    assert response.status_code == 201
+    assert captured["sort_order"] is None
+    assert captured["data"]["company_id"] == "company-1"
 
 
 def test_list_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -266,6 +375,8 @@ def test_tailor_projects_success(client: TestClient, monkeypatch: pytest.MonkeyP
         job_title: str,
         job_description: str,
         job_requirements: str,
+        company_name: str | None = None,
+        company_overview: str | None = None,
         settings,
     ):
         _ = (db, settings)
@@ -274,6 +385,8 @@ def test_tailor_projects_success(client: TestClient, monkeypatch: pytest.MonkeyP
         assert job_title == "Backend Engineer"
         assert job_description == "Build scalable APIs"
         assert job_requirements == "FastAPI, PostgreSQL, testing"
+        assert company_name is None
+        assert company_overview is None
 
         return {
             "tailored_projects": [
@@ -322,6 +435,65 @@ def test_tailor_projects_success(client: TestClient, monkeypatch: pytest.MonkeyP
     assert body["skipped_projects"][0]["project_id"] == "project-2"
 
 
+def test_tailor_projects_with_target_job_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_get_target_job_by_id(db, user_id: str, job_id: str):
+        return SimpleNamespace(
+            id=job_id,
+            user_id=user_id,
+            company_id="company-1",
+            title="Backend Engineer",
+            job_description="Build scalable APIs",
+            job_requirements="FastAPI, PostgreSQL, testing",
+        )
+
+    async def fake_get_target_company_by_id(db, user_id: str, company_id: str):
+        return SimpleNamespace(
+            id=company_id,
+            user_id=user_id,
+            name="Acme Corp",
+            overview="Builds developer tooling.",
+        )
+
+    async def fake_tailor_projects_for_job(
+        *,
+        db,
+        user_id: str,
+        project_ids: list[str],
+        job_title: str,
+        job_description: str,
+        job_requirements: str,
+        company_name: str | None = None,
+        company_overview: str | None = None,
+        settings,
+    ):
+        _ = (db, settings)
+        assert user_id == "user-1"
+        assert project_ids == ["project-1"]
+        assert job_title == "Backend Engineer"
+        assert job_description == "Build scalable APIs"
+        assert job_requirements == "FastAPI, PostgreSQL, testing"
+        assert company_name == "Acme Corp"
+        assert company_overview == "Builds developer tooling."
+
+        return {"tailored_projects": [], "skipped_projects": []}
+
+    monkeypatch.setattr(projects_endpoints, "get_target_job_by_id", fake_get_target_job_by_id)
+    monkeypatch.setattr(projects_endpoints, "get_target_company_by_id", fake_get_target_company_by_id)
+    monkeypatch.setattr(projects_endpoints, "tailor_projects_for_job", fake_tailor_projects_for_job)
+
+    response = client.post(
+        "/api/v1/projects/tailor",
+        json={
+            "target_job_id": "job-1",
+            "project_ids": ["project-1"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tailored_projects"] == []
+
+
 def test_tailor_projects_rejects_more_than_five_ids(client: TestClient) -> None:
     response = client.post(
         "/api/v1/projects/tailor",
@@ -352,9 +524,21 @@ def test_tailor_projects_maps_service_error(client: TestClient, monkeypatch: pyt
         job_title: str,
         job_description: str,
         job_requirements: str,
+        company_name: str | None = None,
+        company_overview: str | None = None,
         settings,
     ):
-        _ = (db, user_id, project_ids, job_title, job_description, job_requirements, settings)
+        _ = (
+            db,
+            user_id,
+            project_ids,
+            job_title,
+            job_description,
+            job_requirements,
+            company_name,
+            company_overview,
+            settings,
+        )
         raise projects_endpoints.GithubLoaderError(
             "Selected projects were not found for current user: project-2.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,

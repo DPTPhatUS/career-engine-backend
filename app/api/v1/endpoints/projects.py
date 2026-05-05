@@ -10,6 +10,8 @@ from app.crud.project import (
     list_projects_by_user_id,
     update_project,
 )
+from app.crud.target_company import get_target_company_by_id
+from app.crud.target_job import get_target_job_by_id
 from app.db.session import get_db
 from app.models.auth import User
 from app.schemas.project import (
@@ -69,13 +71,39 @@ async def tailor_projects_endpoint(
     settings: Settings = Depends(get_settings),
 ) -> TailorProjectsResponse:
     try:
+        job_title = data.job_title
+        job_description = data.job_description
+        job_requirements = data.job_requirements
+        company_name = None
+        company_overview = None
+
+        if data.target_job_id:
+            target_job = await get_target_job_by_id(db, current_user.id, data.target_job_id)
+            if not target_job:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target job not found")
+
+            company = await get_target_company_by_id(db, current_user.id, target_job.company_id)
+            if not company:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Target company not found",
+                )
+
+            job_title = target_job.title
+            job_description = target_job.job_description
+            job_requirements = target_job.job_requirements
+            company_name = company.name
+            company_overview = company.overview
+
         payload = await tailor_projects_for_job(
             db=db,
             user_id=current_user.id,
             project_ids=data.project_ids,
-            job_title=data.job_title,
-            job_description=data.job_description,
-            job_requirements=data.job_requirements,
+            job_title=job_title,
+            job_description=job_description,
+            job_requirements=job_requirements,
+            company_name=company_name,
+            company_overview=company_overview,
             settings=settings,
         )
     except GithubLoaderError as exc:

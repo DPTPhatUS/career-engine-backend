@@ -467,7 +467,7 @@ Use this endpoint on the resume setup screen when a user provides a target job a
 
 The backend scans each selected project's GitHub repository, then generates job-aligned project bullets and tech stack suggestions.
 
-Request:
+Request (ad-hoc job fields):
 
 ```json
 {
@@ -478,11 +478,20 @@ Request:
 }
 ```
 
+Request (saved target job):
+
+```json
+{
+  "target_job_id": "target-job-1",
+  "project_ids": ["project-1", "project-2"]
+}
+```
+
 Validation rules:
 
 - `project_ids` must contain between 1 and 5 items.
 - `project_ids` must not contain duplicates.
-- Job text fields must be non-empty.
+- Provide either `target_job_id` or all job text fields.
 
 Response `200`:
 
@@ -515,6 +524,7 @@ Response `200`:
 Notes:
 
 - This endpoint is preview-only and does not update project records.
+- When `target_job_id` is provided, the backend uses the saved job plus company overview for tailoring.
 - This endpoint does not create a resume record.
 - Frontend should use `tailored_projects` to prefill the next resume-building screen, then call existing resume create/update endpoints.
 - Partial success is supported: one or more projects can be skipped while others are successfully tailored.
@@ -531,6 +541,134 @@ Errors:
 - `503` for missing LLM provider configuration/dependencies.
 - `502` for non-recoverable upstream failures.
 
+## Target Companies
+
+Target company endpoints manage a saved list of companies that target jobs must reference.
+
+All target company endpoints require an authenticated session cookie.
+
+### Target company item shape
+
+```json
+{
+  "name": "Acme Corp",
+  "company_url": "https://acme.example",
+  "overview": "Builds developer tooling."
+}
+```
+
+Optional fields: `company_url`, `overview`.
+
+### List target companies
+
+#### `GET /api/v1/target-companies`
+
+Response `200`: array of `TargetCompanyResponse` objects.
+
+Items are sorted by `sort_order` ascending, then `created_at` ascending.
+
+### Create target company
+
+#### `POST /api/v1/target-companies`
+
+Request:
+
+```json
+{
+  "name": "Acme Corp",
+  "company_url": "https://acme.example",
+  "overview": "Builds developer tooling.",
+  "sort_order": 0
+}
+```
+
+- `sort_order` is optional. If omitted, backend appends to the end of the user list.
+
+Response `201`: one `TargetCompanyResponse` object.
+
+### Update target company
+
+#### `PATCH /api/v1/target-companies/{company_id}`
+
+Request supports partial updates, including `sort_order`.
+
+Response `200`: updated `TargetCompanyResponse` object.
+
+Errors:
+
+- `404 { "detail": "Target company not found" }` if missing or not owned by current user.
+
+### Delete target company
+
+#### `DELETE /api/v1/target-companies/{company_id}`
+
+Response `204 No Content`.
+
+## Target Jobs
+
+Target job endpoints manage saved target roles linked to a saved company.
+
+All target job endpoints require an authenticated session cookie.
+
+### Target job item shape
+
+```json
+{
+  "company_id": "<company_id>",
+  "title": "Backend Engineer",
+  "job_description": "Build and maintain backend APIs...",
+  "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD"
+}
+```
+
+### List target jobs
+
+#### `GET /api/v1/target-jobs`
+
+Response `200`: array of `TargetJobResponse` objects.
+
+Items are sorted by `sort_order` ascending, then `created_at` ascending.
+
+### Create target job
+
+#### `POST /api/v1/target-jobs`
+
+Request:
+
+```json
+{
+  "company_id": "<company_id>",
+  "title": "Backend Engineer",
+  "job_description": "Build and maintain backend APIs...",
+  "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD",
+  "sort_order": 0
+}
+```
+
+- `company_id` must reference a saved target company owned by the current user.
+- `sort_order` is optional. If omitted, backend appends to the end of the user list.
+
+Response `201`: one `TargetJobResponse` object.
+
+### Update target job
+
+#### `PATCH /api/v1/target-jobs/{job_id}`
+
+Request supports partial updates, including `sort_order` and `company_id`.
+
+Response `200`: updated `TargetJobResponse` object.
+
+Errors:
+
+- `404 { "detail": "Target job not found" }` if missing or not owned by current user.
+- `404 { "detail": "Target company not found" }` if `company_id` is provided and not owned by current user.
+
+### Delete target job
+
+#### `DELETE /api/v1/target-jobs/{job_id}`
+
+Response `204 No Content`.
+
 ## Resume from Scratch
 
 The resume flow remains independent and unchanged: frontend still sends complete resume payloads directly when creating/updating resumes.
@@ -546,6 +684,7 @@ A resume has:
 - `title`: string
 - `payload`: object with:
   - `personal_info`
+  - `target_job_id` (optional)
   - `education[]`
   - `projects[]`
   - `skills[]`
@@ -644,6 +783,7 @@ Request:
       "github_label": "GitHub",
       "github_url": "https://github.com/ada"
     },
+    "target_job_id": "target-job-1",
     "education": [],
     "projects": [],
     "skills": []

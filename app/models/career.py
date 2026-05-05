@@ -26,6 +26,7 @@ class Profile(Base):
     )
 
 
+
 class Education(Base):
     __tablename__ = "educations"
 
@@ -56,6 +57,39 @@ class Project(Base):
     github_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     tech_stack: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bullets: Mapped[list[str]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TargetCompany(Base):
+    __tablename__ = "target_companies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    name: Mapped[str] = mapped_column(String(255))
+    company_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    overview: Mapped[str | None] = mapped_column(String(8000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TargetJob(Base):
+    __tablename__ = "target_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("target_companies.id", ondelete="CASCADE"), index=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(255))
+    job_description: Mapped[str] = mapped_column(String(8000))
+    job_requirements: Mapped[str] = mapped_column(String(8000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
