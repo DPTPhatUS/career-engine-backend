@@ -63,8 +63,8 @@ class Project(Base):
     )
 
 
-class TargetCompany(Base):
-    __tablename__ = "target_companies"
+class Company(Base):
+    __tablename__ = "companies"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -78,13 +78,13 @@ class TargetCompany(Base):
     )
 
 
-class TargetJob(Base):
-    __tablename__ = "target_jobs"
+class Job(Base):
+    __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     company_id: Mapped[str] = mapped_column(
-        ForeignKey("target_companies.id", ondelete="CASCADE"), index=True
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     title: Mapped[str] = mapped_column(String(255))

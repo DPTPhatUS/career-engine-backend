@@ -166,6 +166,8 @@ def test_tailor_projects_for_job_skips_missing_github_url(monkeypatch: pytest.Mo
             job_title="Backend Engineer",
             job_description="Build backend services",
             job_requirements="FastAPI and SQL",
+            company_name=None,
+            company_overview=None,
             settings=SimpleNamespace(),
         )
     )
@@ -275,6 +277,8 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
             job_title="Backend Engineer",
             job_description="Build backend services",
             job_requirements="FastAPI and SQL",
+            company_name="Acme Corp",
+            company_overview="Builds developer tooling.",
             settings=SimpleNamespace(),
         )
     )
@@ -312,6 +316,8 @@ def test_generate_job_tailored_summary_falls_back_when_json_invalid() -> None:
             job_title="Backend Engineer",
             job_description="Build backend services",
             job_requirements="FastAPI and SQL",
+            company_name=None,
+            company_overview=None,
             chat_model=FakeChatModel(),
         )
     )

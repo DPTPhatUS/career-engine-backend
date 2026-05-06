@@ -103,7 +103,7 @@ Base path: `/api/v1`
 7. `POST /projects/autofill`
 	- Generates project suggestions from a GitHub repository URL.
 8. `POST /projects/tailor`
-	- Tailors selected saved projects to a target job using GitHub scan + LLM generation.
+	- Tailors selected saved projects to a job using GitHub scan + LLM generation.
 9. `POST /resumes`
 	- Requires authenticated session cookie.
 	- Creates a resume record.

@@ -459,11 +459,11 @@ Errors:
 - `503` when selected LLM provider key is missing.
 - `502` for upstream GitHub/LLM failures.
 
-### Tailor selected projects for a target job
+### Tailor selected projects for a job
 
 #### `POST /api/v1/projects/tailor`
 
-Use this endpoint on the resume setup screen when a user provides a target job and selects projects from their saved list.
+Use this endpoint on the resume setup screen when a user provides a job and selects projects from their saved list.
 
 The backend scans each selected project's GitHub repository, then generates job-aligned project bullets and tech stack suggestions.
 
@@ -478,11 +478,11 @@ Request (ad-hoc job fields):
 }
 ```
 
-Request (saved target job):
+Request (saved job):
 
 ```json
 {
-  "target_job_id": "target-job-1",
+  "job_id": "job-1",
   "project_ids": ["project-1", "project-2"]
 }
 ```
@@ -491,7 +491,7 @@ Validation rules:
 
 - `project_ids` must contain between 1 and 5 items.
 - `project_ids` must not contain duplicates.
-- Provide either `target_job_id` or all job text fields.
+- Provide either `job_id` or all job text fields.
 
 Response `200`:
 
@@ -524,7 +524,7 @@ Response `200`:
 Notes:
 
 - This endpoint is preview-only and does not update project records.
-- When `target_job_id` is provided, the backend uses the saved job plus company overview for tailoring.
+- When `job_id` is provided, the backend uses the saved job plus company overview for tailoring.
 - This endpoint does not create a resume record.
 - Frontend should use `tailored_projects` to prefill the next resume-building screen, then call existing resume create/update endpoints.
 - Partial success is supported: one or more projects can be skipped while others are successfully tailored.
@@ -541,13 +541,13 @@ Errors:
 - `503` for missing LLM provider configuration/dependencies.
 - `502` for non-recoverable upstream failures.
 
-## Target Companies
+## Companies
 
-Target company endpoints manage a saved list of companies that target jobs must reference.
+Company endpoints manage a saved list of companies that jobs must reference.
 
-All target company endpoints require an authenticated session cookie.
+All company endpoints require an authenticated session cookie.
 
-### Target company item shape
+### Company item shape
 
 ```json
 {
@@ -559,17 +559,17 @@ All target company endpoints require an authenticated session cookie.
 
 Optional fields: `company_url`, `overview`.
 
-### List target companies
+### List companies
 
-#### `GET /api/v1/target-companies`
+#### `GET /api/v1/companies`
 
-Response `200`: array of `TargetCompanyResponse` objects.
+Response `200`: array of `CompanyResponse` objects.
 
 Items are sorted by `sort_order` ascending, then `created_at` ascending.
 
-### Create target company
+### Create company
 
-#### `POST /api/v1/target-companies`
+#### `POST /api/v1/companies`
 
 Request:
 
@@ -584,33 +584,33 @@ Request:
 
 - `sort_order` is optional. If omitted, backend appends to the end of the user list.
 
-Response `201`: one `TargetCompanyResponse` object.
+Response `201`: one `CompanyResponse` object.
 
-### Update target company
+### Update company
 
-#### `PATCH /api/v1/target-companies/{company_id}`
+#### `PATCH /api/v1/companies/{company_id}`
 
 Request supports partial updates, including `sort_order`.
 
-Response `200`: updated `TargetCompanyResponse` object.
+Response `200`: updated `CompanyResponse` object.
 
 Errors:
 
-- `404 { "detail": "Target company not found" }` if missing or not owned by current user.
+- `404 { "detail": "Company not found" }` if missing or not owned by current user.
 
-### Delete target company
+### Delete company
 
-#### `DELETE /api/v1/target-companies/{company_id}`
+#### `DELETE /api/v1/companies/{company_id}`
 
 Response `204 No Content`.
 
-## Target Jobs
+## Jobs
 
-Target job endpoints manage saved target roles linked to a saved company.
+Job endpoints manage saved roles linked to a saved company.
 
-All target job endpoints require an authenticated session cookie.
+All job endpoints require an authenticated session cookie.
 
-### Target job item shape
+### Job item shape
 
 ```json
 {
@@ -621,17 +621,17 @@ All target job endpoints require an authenticated session cookie.
 }
 ```
 
-### List target jobs
+### List jobs
 
-#### `GET /api/v1/target-jobs`
+#### `GET /api/v1/jobs`
 
-Response `200`: array of `TargetJobResponse` objects.
+Response `200`: array of `JobResponse` objects.
 
 Items are sorted by `sort_order` ascending, then `created_at` ascending.
 
-### Create target job
+### Create job
 
-#### `POST /api/v1/target-jobs`
+#### `POST /api/v1/jobs`
 
 Request:
 
@@ -645,27 +645,27 @@ Request:
 }
 ```
 
-- `company_id` must reference a saved target company owned by the current user.
+- `company_id` must reference a saved company owned by the current user.
 - `sort_order` is optional. If omitted, backend appends to the end of the user list.
 
-Response `201`: one `TargetJobResponse` object.
+Response `201`: one `JobResponse` object.
 
-### Update target job
+### Update job
 
-#### `PATCH /api/v1/target-jobs/{job_id}`
+#### `PATCH /api/v1/jobs/{job_id}`
 
 Request supports partial updates, including `sort_order` and `company_id`.
 
-Response `200`: updated `TargetJobResponse` object.
+Response `200`: updated `JobResponse` object.
 
 Errors:
 
-- `404 { "detail": "Target job not found" }` if missing or not owned by current user.
-- `404 { "detail": "Target company not found" }` if `company_id` is provided and not owned by current user.
+- `404 { "detail": "Job not found" }` if missing or not owned by current user.
+- `404 { "detail": "Company not found" }` if `company_id` is provided and not owned by current user.
 
-### Delete target job
+### Delete job
 
-#### `DELETE /api/v1/target-jobs/{job_id}`
+#### `DELETE /api/v1/jobs/{job_id}`
 
 Response `204 No Content`.
 
@@ -684,7 +684,7 @@ A resume has:
 - `title`: string
 - `payload`: object with:
   - `personal_info`
-  - `target_job_id` (optional)
+  - `job_id` (optional)
   - `education[]`
   - `projects[]`
   - `skills[]`
@@ -783,7 +783,7 @@ Request:
       "github_label": "GitHub",
       "github_url": "https://github.com/ada"
     },
-    "target_job_id": "target-job-1",
+    "job_id": "job-1",
     "education": [],
     "projects": [],
     "skills": []

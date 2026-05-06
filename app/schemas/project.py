@@ -36,20 +36,20 @@ class ProjectAutofillResponse(ProjectItem):
 
 
 class TailorProjectsRequest(BaseModel):
-    target_job_id: str | None = None
+    job_id: str | None = None
     job_title: str | None = Field(default=None, min_length=1, max_length=200)
     job_description: str | None = Field(default=None, min_length=1, max_length=8000)
     job_requirements: str | None = Field(default=None, min_length=1, max_length=8000)
     project_ids: list[str] = Field(min_length=1, max_length=5)
 
-    @field_validator("target_job_id")
+    @field_validator("job_id")
     @classmethod
-    def _normalize_target_job_id(cls, value: str | None) -> str | None:
+    def _normalize_job_id(cls, value: str | None) -> str | None:
         if value is None:
             return value
         cleaned = value.strip()
         if not cleaned:
-            raise ValueError("target_job_id must not be empty.")
+            raise ValueError("job_id must not be empty.")
         return cleaned
 
     @field_validator("job_title", "job_description", "job_requirements")
@@ -64,15 +64,15 @@ class TailorProjectsRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_job_source(self) -> "TailorProjectsRequest":
-        has_target_job = bool(self.target_job_id)
+        has_job_id = bool(self.job_id)
         has_job_fields = any(
             field_value is not None for field_value in (self.job_title, self.job_description, self.job_requirements)
         )
 
-        if has_target_job and has_job_fields:
-            raise ValueError("Provide either target_job_id or job fields, not both.")
+        if has_job_id and has_job_fields:
+            raise ValueError("Provide either job_id or job fields, not both.")
 
-        if not has_target_job:
+        if not has_job_id:
             missing = [
                 name
                 for name, value in (
@@ -84,7 +84,7 @@ class TailorProjectsRequest(BaseModel):
             ]
             if missing:
                 raise ValueError(
-                    "job_title, job_description, and job_requirements are required when target_job_id is not provided."
+                    "job_title, job_description, and job_requirements are required when job_id is not provided."
                 )
 
         return self

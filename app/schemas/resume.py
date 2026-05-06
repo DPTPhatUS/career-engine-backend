@@ -37,7 +37,7 @@ class SkillCategory(BaseModel):
 
 class ResumePayload(BaseModel):
     personal_info: PersonalInfo
-    target_job_id: str | None = None
+    job_id: str | None = None
     education: list[EducationItem] = Field(default_factory=list)
     projects: list[ProjectItem] = Field(default_factory=list)
     skills: list[SkillCategory] = Field(default_factory=list)

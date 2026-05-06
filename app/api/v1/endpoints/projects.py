@@ -10,8 +10,8 @@ from app.crud.project import (
     list_projects_by_user_id,
     update_project,
 )
-from app.crud.target_company import get_target_company_by_id
-from app.crud.target_job import get_target_job_by_id
+from app.crud.company import get_company_by_id
+from app.crud.job import get_job_by_id
 from app.db.session import get_db
 from app.models.auth import User
 from app.schemas.project import (
@@ -77,21 +77,18 @@ async def tailor_projects_endpoint(
         company_name = None
         company_overview = None
 
-        if data.target_job_id:
-            target_job = await get_target_job_by_id(db, current_user.id, data.target_job_id)
-            if not target_job:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target job not found")
+        if data.job_id:
+            job = await get_job_by_id(db, current_user.id, data.job_id)
+            if not job:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-            company = await get_target_company_by_id(db, current_user.id, target_job.company_id)
+            company = await get_company_by_id(db, current_user.id, job.company_id)
             if not company:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Target company not found",
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
 
-            job_title = target_job.title
-            job_description = target_job.job_description
-            job_requirements = target_job.job_requirements
+            job_title = job.title
+            job_description = job.job_description
+            job_requirements = job.job_requirements
             company_name = company.name
             company_overview = company.overview
 

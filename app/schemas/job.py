@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class TargetJobItem(BaseModel):
+class JobItem(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     job_description: str = Field(min_length=1, max_length=8000)
     job_requirements: str = Field(min_length=1, max_length=8000)
@@ -17,7 +17,7 @@ class TargetJobItem(BaseModel):
         return cleaned
 
 
-class TargetJobCreateRequest(TargetJobItem):
+class JobCreateRequest(JobItem):
     company_id: str
     sort_order: int | None = None
 
@@ -30,7 +30,7 @@ class TargetJobCreateRequest(TargetJobItem):
         return cleaned
 
 
-class TargetJobUpdateRequest(BaseModel):
+class JobUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     job_description: str | None = Field(default=None, min_length=1, max_length=8000)
     job_requirements: str | None = Field(default=None, min_length=1, max_length=8000)
@@ -58,13 +58,13 @@ class TargetJobUpdateRequest(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def _validate_company_id(self) -> "TargetJobUpdateRequest":
+    def _validate_company_id(self) -> "JobUpdateRequest":
         if "company_id" in self.model_fields_set and self.company_id is None:
             raise ValueError("company_id must not be null.")
         return self
 
 
-class TargetJobResponse(TargetJobItem):
+class JobResponse(JobItem):
     id: str
     user_id: str
     company_id: str

@@ -229,7 +229,7 @@ async def generate_job_tailored_project_summary(
         chat_model,
         _TAILOR_SYSTEM_PROMPT,
         user_prompt,
-        "LLM generation failed while tailoring project suggestions to the target job.",
+        "LLM generation failed while tailoring project suggestions to the job.",
     )
 
     raw_text = _message_to_text(response)
@@ -378,7 +378,7 @@ def _build_job_tailor_user_prompt(
         )
 
     return (
-        "Target job:\n"
+        "Job:\n"
         f"- Job title: {job_title}\n"
         f"- Job description:\n{job_description}\n\n"
         f"- Job requirements:\n{job_requirements}\n\n"

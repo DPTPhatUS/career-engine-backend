@@ -11,8 +11,8 @@ from app.api.v1.endpoints import educations as educations_endpoints
 from app.api.v1.endpoints import profile as profile_endpoints
 from app.api.v1.endpoints import projects as projects_endpoints
 from app.api.v1.endpoints import resumes as resumes_endpoints
-from app.api.v1.endpoints import target_companies as target_companies_endpoints
-from app.api.v1.endpoints import target_jobs as target_jobs_endpoints
+from app.api.v1.endpoints import companies as companies_endpoints
+from app.api.v1.endpoints import jobs as jobs_endpoints
 from app.db.session import get_db
 from app.main import app
 
@@ -131,8 +131,8 @@ def test_patch_education_not_found(client: TestClient, monkeypatch: pytest.Monke
     assert response.json() == {"detail": "Education not found"}
 
 
-def test_list_target_companies_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_list_target_companies_by_user_id(db, user_id: str):
+def test_list_companies_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_list_companies_by_user_id(db, user_id: str):
         return [
             SimpleNamespace(
                 id="company-1",
@@ -147,24 +147,24 @@ def test_list_target_companies_success(client: TestClient, monkeypatch: pytest.M
         ]
 
     monkeypatch.setattr(
-        target_companies_endpoints,
-        "list_target_companies_by_user_id",
-        fake_list_target_companies_by_user_id,
+        companies_endpoints,
+        "list_companies_by_user_id",
+        fake_list_companies_by_user_id,
     )
 
-    response = client.get("/api/v1/target-companies")
+    response = client.get("/api/v1/companies")
     assert response.status_code == 200
     body = response.json()
     assert len(body) == 1
     assert body[0]["id"] == "company-1"
 
 
-def test_create_target_company_sends_payload_and_sort_order(
+def test_create_company_sends_payload_and_sort_order(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict = {}
 
-    async def fake_create_target_company(db, user_id: str, data: dict, sort_order: int | None):
+    async def fake_create_company(db, user_id: str, data: dict, sort_order: int | None):
         captured["data"] = data
         captured["sort_order"] = sort_order
         return SimpleNamespace(
@@ -177,13 +177,13 @@ def test_create_target_company_sends_payload_and_sort_order(
         )
 
     monkeypatch.setattr(
-        target_companies_endpoints,
-        "create_target_company",
-        fake_create_target_company,
+        companies_endpoints,
+        "create_company",
+        fake_create_company,
     )
 
     response = client.post(
-        "/api/v1/target-companies",
+        "/api/v1/companies",
         json={
             "name": "Acme Corp",
             "company_url": "https://acme.example",
@@ -196,15 +196,15 @@ def test_create_target_company_sends_payload_and_sort_order(
     assert captured["data"]["name"] == "Acme Corp"
 
 
-def test_create_target_job_sends_payload_and_sort_order(
+def test_create_job_sends_payload_and_sort_order(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict = {}
 
-    async def fake_get_target_company_by_id(db, user_id: str, company_id: str):
+    async def fake_get_company_by_id(db, user_id: str, company_id: str):
         return SimpleNamespace(id=company_id, user_id=user_id)
 
-    async def fake_create_target_job(db, user_id: str, data: dict, sort_order: int | None):
+    async def fake_create_job(db, user_id: str, data: dict, sort_order: int | None):
         captured["data"] = data
         captured["sort_order"] = sort_order
         return SimpleNamespace(
@@ -217,14 +217,14 @@ def test_create_target_job_sends_payload_and_sort_order(
         )
 
     monkeypatch.setattr(
-        target_jobs_endpoints,
-        "get_target_company_by_id",
-        fake_get_target_company_by_id,
+        jobs_endpoints,
+        "get_company_by_id",
+        fake_get_company_by_id,
     )
-    monkeypatch.setattr(target_jobs_endpoints, "create_target_job", fake_create_target_job)
+    monkeypatch.setattr(jobs_endpoints, "create_job", fake_create_job)
 
     response = client.post(
-        "/api/v1/target-jobs",
+        "/api/v1/jobs",
         json={
             "company_id": "company-1",
             "title": "Backend Engineer",
@@ -435,8 +435,8 @@ def test_tailor_projects_success(client: TestClient, monkeypatch: pytest.MonkeyP
     assert body["skipped_projects"][0]["project_id"] == "project-2"
 
 
-def test_tailor_projects_with_target_job_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_get_target_job_by_id(db, user_id: str, job_id: str):
+def test_tailor_projects_with_job_id(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
         return SimpleNamespace(
             id=job_id,
             user_id=user_id,
@@ -446,7 +446,7 @@ def test_tailor_projects_with_target_job_id(client: TestClient, monkeypatch: pyt
             job_requirements="FastAPI, PostgreSQL, testing",
         )
 
-    async def fake_get_target_company_by_id(db, user_id: str, company_id: str):
+    async def fake_get_company_by_id(db, user_id: str, company_id: str):
         return SimpleNamespace(
             id=company_id,
             user_id=user_id,
@@ -477,14 +477,14 @@ def test_tailor_projects_with_target_job_id(client: TestClient, monkeypatch: pyt
 
         return {"tailored_projects": [], "skipped_projects": []}
 
-    monkeypatch.setattr(projects_endpoints, "get_target_job_by_id", fake_get_target_job_by_id)
-    monkeypatch.setattr(projects_endpoints, "get_target_company_by_id", fake_get_target_company_by_id)
+    monkeypatch.setattr(projects_endpoints, "get_job_by_id", fake_get_job_by_id)
+    monkeypatch.setattr(projects_endpoints, "get_company_by_id", fake_get_company_by_id)
     monkeypatch.setattr(projects_endpoints, "tailor_projects_for_job", fake_tailor_projects_for_job)
 
     response = client.post(
         "/api/v1/projects/tailor",
         json={
-            "target_job_id": "job-1",
+            "job_id": "job-1",
             "project_ids": ["project-1"],
         },
     )
