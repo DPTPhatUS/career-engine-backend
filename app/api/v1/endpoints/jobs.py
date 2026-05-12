@@ -20,6 +20,8 @@ def _to_job_response(item) -> JobResponse:
         title=item.title,
         job_description=item.job_description,
         job_requirements=item.job_requirements,
+        stage=item.stage,
+        deadline=item.deadline,
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -44,7 +46,7 @@ async def create_job_endpoint(
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
 
-    payload = data.model_dump(mode="json")
+    payload = data.model_dump()
     sort_order = payload.pop("sort_order", None)
     job = await create_job(db, current_user.id, payload, sort_order)
     return _to_job_response(job)
@@ -61,7 +63,7 @@ async def update_job_endpoint(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    payload = data.model_dump(mode="json", exclude_unset=True)
+    payload = data.model_dump(exclude_unset=True)
     company_id = payload.get("company_id")
     if company_id:
         company = await get_company_by_id(db, current_user.id, company_id)

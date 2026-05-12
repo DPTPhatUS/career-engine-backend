@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from collections.abc import Generator
 from types import SimpleNamespace
 
@@ -236,6 +236,165 @@ def test_create_job_sends_payload_and_sort_order(
     assert response.status_code == 201
     assert captured["sort_order"] is None
     assert captured["data"]["company_id"] == "company-1"
+    assert captured["data"]["stage"] == "saved"
+    assert captured["data"]["deadline"] is None
+    body = response.json()
+    assert body["stage"] == "saved"
+    assert body["deadline"] is None
+
+
+def test_create_job_accepts_stage_and_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict = {}
+
+    async def fake_get_company_by_id(db, user_id: str, company_id: str):
+        return SimpleNamespace(id=company_id, user_id=user_id)
+
+    async def fake_create_job(db, user_id: str, data: dict, sort_order: int | None):
+        captured["data"] = data
+        return SimpleNamespace(
+            id="job-1",
+            user_id=user_id,
+            sort_order=0,
+            created_at=_ts(),
+            updated_at=_ts(),
+            **data,
+        )
+
+    monkeypatch.setattr(jobs_endpoints, "get_company_by_id", fake_get_company_by_id)
+    monkeypatch.setattr(jobs_endpoints, "create_job", fake_create_job)
+
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "company_id": "company-1",
+            "title": "Backend Engineer",
+            "job_description": "Build backend services",
+            "job_requirements": "FastAPI, PostgreSQL",
+            "stage": "interviewing",
+            "deadline": "2026-12-31",
+        },
+    )
+
+    assert response.status_code == 201
+    assert captured["data"]["stage"] == "interviewing"
+    assert captured["data"]["deadline"] == date.fromisoformat("2026-12-31")
+    body = response.json()
+    assert body["stage"] == "interviewing"
+    assert body["deadline"] == "2026-12-31"
+
+
+def test_patch_job_stage(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
+        return SimpleNamespace(
+            id=job_id,
+            user_id=user_id,
+            company_id="company-1",
+            sort_order=0,
+            title="Backend Engineer",
+            job_description="Build backend services",
+            job_requirements="FastAPI, PostgreSQL",
+            stage="saved",
+            deadline=None,
+            created_at=_ts(),
+            updated_at=_ts(),
+        )
+
+    async def fake_update_job(db, job, data: dict):
+        assert data["stage"] == "offer"
+        payload = dict(job.__dict__)
+        payload.update(data)
+        payload["updated_at"] = _ts()
+        return SimpleNamespace(**payload)
+
+    monkeypatch.setattr(jobs_endpoints, "get_job_by_id", fake_get_job_by_id)
+    monkeypatch.setattr(jobs_endpoints, "update_job", fake_update_job)
+
+    response = client.patch("/api/v1/jobs/job-1", json={"stage": "offer"})
+    assert response.status_code == 200
+    assert response.json()["stage"] == "offer"
+
+
+def test_patch_job_deadline(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
+        return SimpleNamespace(
+            id=job_id,
+            user_id=user_id,
+            company_id="company-1",
+            sort_order=0,
+            title="Backend Engineer",
+            job_description="Build backend services",
+            job_requirements="FastAPI, PostgreSQL",
+            stage="saved",
+            deadline=None,
+            created_at=_ts(),
+            updated_at=_ts(),
+        )
+
+    async def fake_update_job(db, job, data: dict):
+        assert data["deadline"] == date.fromisoformat("2026-09-01")
+        payload = dict(job.__dict__)
+        payload.update(deadline=data["deadline"])
+        payload["updated_at"] = _ts()
+        return SimpleNamespace(**payload)
+
+    monkeypatch.setattr(jobs_endpoints, "get_job_by_id", fake_get_job_by_id)
+    monkeypatch.setattr(jobs_endpoints, "update_job", fake_update_job)
+
+    response = client.patch("/api/v1/jobs/job-1", json={"deadline": "2026-09-01"})
+    assert response.status_code == 200
+    assert response.json()["deadline"] == "2026-09-01"
+
+
+def test_create_job_invalid_stage_422(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "company_id": "company-1",
+            "title": "Backend Engineer",
+            "job_description": "Build backend services",
+            "job_requirements": "FastAPI, PostgreSQL",
+            "stage": "unknown",
+        },
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_create_job_accepts_expired_stage(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    async def fake_get_company_by_id(db, user_id: str, company_id: str):
+        return SimpleNamespace(id=company_id, user_id=user_id)
+
+    async def fake_create_job(db, user_id: str, data: dict, sort_order: int | None):
+        captured["data"] = data
+        return SimpleNamespace(
+            id="job-1",
+            user_id=user_id,
+            sort_order=0,
+            created_at=_ts(),
+            updated_at=_ts(),
+            **data,
+        )
+
+    monkeypatch.setattr(jobs_endpoints, "get_company_by_id", fake_get_company_by_id)
+    monkeypatch.setattr(jobs_endpoints, "create_job", fake_create_job)
+
+    response = client.post(
+        "/api/v1/jobs",
+        json={
+            "company_id": "company-1",
+            "title": "Backend Engineer",
+            "job_description": "Build backend services",
+            "job_requirements": "FastAPI, PostgreSQL",
+            "stage": "expired",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert captured["data"]["stage"] == "expired"
+    assert response.json()["stage"] == "expired"
 
 
 def test_list_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

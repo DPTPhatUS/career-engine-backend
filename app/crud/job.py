@@ -1,7 +1,29 @@
+from datetime import date
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.career import Job
+
+TERMINAL_JOB_STAGES = {"offer", "rejected"}
+
+
+def apply_job_expiration(job: Job, today: date | None = None) -> bool:
+    if job.stage in TERMINAL_JOB_STAGES:
+        return False
+
+    if job.stage == "expired":
+        return False
+
+    if job.deadline is None:
+        return False
+
+    current_date = today or date.today()
+    if job.deadline >= current_date:
+        return False
+
+    job.stage = "expired"
+    return True
 
 
 async def list_jobs_by_user_id(db: AsyncSession, user_id: str) -> list[Job]:
@@ -10,7 +32,14 @@ async def list_jobs_by_user_id(db: AsyncSession, user_id: str) -> list[Job]:
         .where(Job.user_id == user_id)
         .order_by(Job.sort_order.asc(), Job.created_at.asc())
     )
-    return list(result)
+    jobs = list(result)
+    has_expired_jobs = False
+    for job in jobs:
+        has_expired_jobs = apply_job_expiration(job) or has_expired_jobs
+
+    if has_expired_jobs:
+        await db.commit()
+    return jobs
 
 
 async def get_job_by_id(db: AsyncSession, user_id: str, job_id: str) -> Job | None:
@@ -29,6 +58,7 @@ async def create_job(
         next_sort_order = 0 if max_sort is None else max_sort + 1
 
     job = Job(user_id=user_id, sort_order=next_sort_order, **data)
+    apply_job_expiration(job)
     db.add(job)
     await db.commit()
     await db.refresh(job)
@@ -39,6 +69,7 @@ async def update_job(db: AsyncSession, job: Job, data: dict) -> Job:
     for field, value in data.items():
         setattr(job, field, value)
 
+    apply_job_expiration(job)
     await db.commit()
     await db.refresh(job)
     return job

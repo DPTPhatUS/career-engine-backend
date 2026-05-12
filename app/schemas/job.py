@@ -1,12 +1,17 @@
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+JobStage = Literal["saved", "applied", "interviewing", "offer", "rejected", "expired"]
 
 
 class JobItem(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     job_description: str = Field(min_length=1, max_length=8000)
     job_requirements: str = Field(min_length=1, max_length=8000)
+    stage: JobStage = "saved"
+    deadline: date | None = None
 
     @field_validator("title", "job_description", "job_requirements")
     @classmethod
@@ -34,6 +39,8 @@ class JobUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     job_description: str | None = Field(default=None, min_length=1, max_length=8000)
     job_requirements: str | None = Field(default=None, min_length=1, max_length=8000)
+    stage: JobStage | None = None
+    deadline: date | None = None
     company_id: str | None = None
     sort_order: int | None = None
 

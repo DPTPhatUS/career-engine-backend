@@ -617,9 +617,15 @@ All job endpoints require an authenticated session cookie.
   "company_id": "<company_id>",
   "title": "Backend Engineer",
   "job_description": "Build and maintain backend APIs...",
-  "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD"
+  "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD",
+  "stage": "saved",
+  "deadline": "2026-12-31"
 }
 ```
+
+- `stage` allowed values: `saved`, `applied`, `interviewing`, `offer`, `rejected`, `expired`.
+- `deadline` optional. Use `YYYY-MM-DD` or `null`.
+- Jobs with a past `deadline` automatically move to `expired` during normal API create, update, and list flows, unless the job is already `offer` or `rejected`.
 
 ### List jobs
 
@@ -641,6 +647,8 @@ Request:
   "title": "Backend Engineer",
   "job_description": "Build and maintain backend APIs...",
   "job_requirements": "FastAPI, PostgreSQL, testing, CI/CD",
+  "stage": "applied",
+  "deadline": "2026-12-31",
   "sort_order": 0
 }
 ```
@@ -654,7 +662,7 @@ Response `201`: one `JobResponse` object.
 
 #### `PATCH /api/v1/jobs/{job_id}`
 
-Request supports partial updates, including `sort_order` and `company_id`.
+Request supports partial updates, including `sort_order`, `company_id`, `stage`, and `deadline`.
 
 Response `200`: updated `JobResponse` object.
 
