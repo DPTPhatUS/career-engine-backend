@@ -7,7 +7,7 @@ from app.services import codexpert_agent as codexpert_agent_service
 from app.services.github_loader import RepoMetadata, fetch_repo_metadata, parse_github_repo_url
 
 _AUTOFILL_QUESTION = """
-Analyze this repository and generate resume-ready project metadata.
+Analyze this repository and generate resume-ready project description.
 Return only valid JSON with this exact shape:
 {
   "title": "short project title",
@@ -16,7 +16,6 @@ Return only valid JSON with this exact shape:
 }
 Rules:
 - Use repository evidence from code, docs, package files, and configuration.
-- Generate the title from repository evidence, not from the GitHub URL alone.
 - Keep tech_stack concise and deduplicated.
 - Produce exactly 3 accomplishment bullets.
 - Bullets must be impact-oriented and written in past tense.

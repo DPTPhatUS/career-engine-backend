@@ -17,7 +17,7 @@ from app.services.github_loader import (
 )
 
 _TAILOR_QUESTION = """
-Analyze this repository and tailor its resume project description for the target job.
+Analyze this repository and generate resume-ready project description for the target job.
 Return only valid JSON with this exact shape:
 {
   "title": "short project title",
