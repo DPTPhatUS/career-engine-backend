@@ -24,10 +24,10 @@ from app.schemas.project import (
     ProjectUpdateRequest,
 )
 from app.services.project_autofill import (
-    GithubLoaderError,
     autofill_project_from_github,
-    tailor_projects_for_job,
 )
+from app.services.github_loader import GithubLoaderError
+from app.services.project_tailor import tailor_projects_for_job
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
