@@ -10,8 +10,8 @@ from app.core.config import Settings
 from app.crud.project import list_projects_by_ids
 from app.services import codexpert_agent as codexpert_agent_service
 from app.services.github_loader import (
-    GithubLoaderError,
-    RepoSnapshot,
+    GithubError,
+    RepoMetadata,
     fetch_repo_snapshot,
     parse_github_repo_url,
 )
@@ -20,6 +20,7 @@ _TAILOR_QUESTION = """
 Analyze this repository and tailor its resume project description for the target job.
 Return only valid JSON with this exact shape:
 {
+  "title": "short project title",
   "tech_stack": "comma-separated technologies",
   "bullets": ["bullet 1", "bullet 2", "bullet 3"]
 }
@@ -49,7 +50,7 @@ async def tailor_projects_for_job(
         found_ids = {project.id for project in projects}
         missing_ids = [project_id for project_id in project_ids if project_id not in found_ids]
         missing_text = ", ".join(missing_ids)
-        raise GithubLoaderError(
+        raise GithubError(
             f"Selected projects were not found for current user: {missing_text}.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -108,7 +109,7 @@ async def _tailor_single_project(
     try:
         coordinates = parse_github_repo_url(github_url)
         snapshot = await fetch_repo_snapshot(coordinates, settings)
-    except GithubLoaderError as exc:
+    except GithubError as exc:
         return None, {
             "project_id": project.id,
             "reason_code": "github_scan_failed",
@@ -116,12 +117,8 @@ async def _tailor_single_project(
         }
 
     try:
-        tech_stack, bullets = await generate_job_tailored_project_summary(
+        title, tech_stack, bullets = await generate_job_tailored_project_summary(
             snapshot=snapshot,
-            project_title=project.title,
-            project_date_range=project.date_range,
-            existing_tech_stack=project.tech_stack,
-            existing_bullets=project.bullets or [],
             job_title=job_title,
             job_description=job_description,
             job_requirements=job_requirements,
@@ -129,7 +126,7 @@ async def _tailor_single_project(
             company_overview=company_overview,
             codexpert_agent=codexpert_agent,
         )
-    except GithubLoaderError as exc:
+    except GithubError as exc:
         return None, {
             "project_id": project.id,
             "reason_code": "generation_failed",
@@ -138,7 +135,7 @@ async def _tailor_single_project(
 
     return {
         "project_id": project.id,
-        "title": project.title,
+        "title": title,
         "date_range": project.date_range,
         "github_url": snapshot.html_url,
         "tech_stack": tech_stack,
@@ -148,21 +145,15 @@ async def _tailor_single_project(
 
 async def generate_job_tailored_project_summary(
     *,
-    snapshot: RepoSnapshot,
-    project_title: str,
-    project_date_range: str,
-    existing_tech_stack: str | None = None,
-    existing_bullets: list[str],
+    snapshot: RepoMetadata,
     job_title: str,
     job_description: str,
     job_requirements: str,
     company_name: str | None = None,
     company_overview: str | None = None,
     codexpert_agent: Any,
-) -> tuple[str, list[str]]:
+) -> tuple[str, str, list[str]]:
     question = _build_job_tailor_question(
-        project_title=project_title,
-        project_date_range=project_date_range,
         job_title=job_title,
         job_description=job_description,
         job_requirements=job_requirements,
@@ -170,24 +161,12 @@ async def generate_job_tailored_project_summary(
         company_overview=company_overview,
     )
     raw_text = await codexpert_agent_service.query_codexpert(codexpert_agent, snapshot, question, "project_tailor")
-    fallback_stack = codexpert_agent_service.merge_stack_fallback(existing_tech_stack, [])
-    normalized_title = (
-        project_title.strip()
-        if project_title.strip()
-        else codexpert_agent_service.fallback_project_title(snapshot.coordinates.repo)
-    )
-    return codexpert_agent_service.normalize_generation_output(
-        raw_text,
-        fallback_stack,
-        normalized_title,
-        fallback_bullets=existing_bullets,
-    )
+    title, tech_stack, bullets = codexpert_agent_service.parse_project_generation_output(raw_text)
+    return title, tech_stack, bullets
 
 
 def _build_job_tailor_question(
     *,
-    project_title: str,
-    project_date_range: str,
     job_title: str,
     job_description: str,
     job_requirements: str,
@@ -204,9 +183,6 @@ def _build_job_tailor_question(
 
     return (
         f"{_TAILOR_QUESTION}\n\n"
-        "Existing project profile:\n"
-        f"- Project title: {project_title}\n"
-        f"- Date range: {project_date_range}\n\n"
         "Target job:\n"
         f"- Job title: {job_title}\n"
         f"- Job description:\n{job_description}\n\n"

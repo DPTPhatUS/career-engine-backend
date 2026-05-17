@@ -26,7 +26,7 @@ from app.schemas.project import (
 from app.services.project_autofill import (
     autofill_project_from_github,
 )
-from app.services.github_loader import GithubLoaderError
+from app.services.github_loader import GithubError
 from app.services.project_tailor import tailor_projects_for_job
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -57,7 +57,7 @@ async def autofill_project_endpoint(
 
     try:
         payload = await autofill_project_from_github(str(data.github_url), settings)
-    except GithubLoaderError as exc:
+    except GithubError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return ProjectAutofillResponse(**payload)
@@ -103,7 +103,7 @@ async def tailor_projects_endpoint(
             company_overview=company_overview,
             settings=settings,
         )
-    except GithubLoaderError as exc:
+    except GithubError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return TailorProjectsResponse(**payload)

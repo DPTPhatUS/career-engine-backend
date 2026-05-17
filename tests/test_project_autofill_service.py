@@ -13,9 +13,9 @@ from app.services.project_autofill import (
 )
 from app.services.project_tailor import generate_job_tailored_project_summary, tailor_projects_for_job
 from app.services.github_loader import (
-    GithubLoaderError,
+    GithubError,
     RepoCoordinates,
-    RepoSnapshot,
+    RepoMetadata,
     format_project_date_range,
     parse_github_repo_url,
 )
@@ -28,7 +28,7 @@ def test_parse_github_repo_url_supports_git_suffix() -> None:
 
 
 def test_parse_github_repo_url_rejects_non_github_host() -> None:
-    with pytest.raises(GithubLoaderError) as exc:
+    with pytest.raises(GithubError) as exc:
         parse_github_repo_url("https://gitlab.com/example/repo")
 
     assert exc.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -50,13 +50,12 @@ def test_parse_project_generation_output_requires_exactly_three_bullets() -> Non
       "bullets": [
         "Built async APIs",
         "Improved test coverage",
-        "Automated deployment",
-        "Extra bullet"
+        "Automated deployment"
       ]
     }
     """
 
-    title, tech_stack, bullets = parse_project_generation_output(raw_text, require_title=True)
+    title, tech_stack, bullets = parse_project_generation_output(raw_text)
 
     assert title == "Career Engine"
     assert tech_stack == "Python, FastAPI, PostgreSQL"
@@ -65,8 +64,8 @@ def test_parse_project_generation_output_requires_exactly_three_bullets() -> Non
 
 
 def test_parse_project_generation_output_raises_when_json_invalid() -> None:
-    with pytest.raises(GithubLoaderError) as exc:
-        parse_project_generation_output("invalid", require_title=False)
+    with pytest.raises(GithubError) as exc:
+        parse_project_generation_output("invalid")
 
     assert exc.value.status_code == status.HTTP_502_BAD_GATEWAY
     assert "valid JSON" in exc.value.detail
@@ -75,8 +74,8 @@ def test_parse_project_generation_output_raises_when_json_invalid() -> None:
 def test_parse_project_generation_output_rejects_missing_generated_title() -> None:
     raw_text = '{"tech_stack": "Python", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
 
-    with pytest.raises(GithubLoaderError) as exc:
-        parse_project_generation_output(raw_text, require_title=True)
+    with pytest.raises(GithubError) as exc:
+        parse_project_generation_output(raw_text)
 
     assert exc.value.status_code == status.HTTP_502_BAD_GATEWAY
     assert "title" in exc.value.detail
@@ -85,8 +84,8 @@ def test_parse_project_generation_output_rejects_missing_generated_title() -> No
 def test_parse_project_generation_output_rejects_wrong_bullet_count() -> None:
     raw_text = '{"title": "Career Engine", "tech_stack": "Python", "bullets": ["Built APIs"]}'
 
-    with pytest.raises(GithubLoaderError) as exc:
-        parse_project_generation_output(raw_text, require_title=True)
+    with pytest.raises(GithubError) as exc:
+        parse_project_generation_output(raw_text)
 
     assert exc.value.status_code == status.HTTP_502_BAD_GATEWAY
     assert "exactly 3" in exc.value.detail
@@ -159,7 +158,7 @@ def test_tailor_projects_for_job_raises_for_missing_project_ids(
 
     monkeypatch.setattr("app.services.project_tailor.list_projects_by_ids", fake_list_projects_by_ids)
 
-    with pytest.raises(GithubLoaderError) as exc:
+    with pytest.raises(GithubError) as exc:
         asyncio.run(
             tailor_projects_for_job(
                 db=object(),
@@ -201,9 +200,9 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
         _ = github_url
         return RepoCoordinates(owner="org", repo="repo")
 
-    async def fake_fetch_repo_snapshot(coordinates: RepoCoordinates, settings) -> RepoSnapshot:
+    async def fake_fetch_repo_snapshot(coordinates: RepoCoordinates, settings) -> RepoMetadata:
         _ = settings
-        return RepoSnapshot(
+        return RepoMetadata(
             coordinates=coordinates,
             html_url="https://github.com/org/repo",
             date_range="Jan 2024 - Present",
@@ -218,8 +217,12 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
             assert "Existing project profile" not in request.question
             assert "Career Engine" not in request.question
             assert "Jan 2024 - Present" not in request.question
+            assert '"title"' in request.question
             return SimpleNamespace(
-                answer='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
+                answer=(
+                    '{"title": "Backend Platform", "tech_stack": "Python, FastAPI", '
+                    '"bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
+                )
             )
 
     monkeypatch.setattr("app.services.project_tailor.list_projects_by_ids", fake_list_projects_by_ids)
@@ -243,6 +246,7 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
 
     assert len(payload["tailored_projects"]) == 1
     assert payload["tailored_projects"][0]["project_id"] == "project-1"
+    assert payload["tailored_projects"][0]["title"] == "Backend Platform"
     assert len(payload["tailored_projects"][0]["bullets"]) == 3
     assert payload["skipped_projects"][0]["project_id"] == "project-2"
     assert payload["skipped_projects"][0]["reason_code"] == "missing_github_url"
@@ -253,7 +257,7 @@ def test_generate_job_tailored_summary_raises_when_json_invalid() -> None:
         async def async_query(self, _request):
             return SimpleNamespace(answer="not-json")
 
-    snapshot = RepoSnapshot(
+    snapshot = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -261,14 +265,10 @@ def test_generate_job_tailored_summary_raises_when_json_invalid() -> None:
         latest_commit_sha="abc123",
     )
 
-    with pytest.raises(GithubLoaderError) as exc:
+    with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_job_tailored_project_summary(
                 snapshot=snapshot,
-                project_title="Career Engine",
-                project_date_range="Jan 2024 - Present",
-                existing_tech_stack="FastAPI, Python",
-                existing_bullets=["Built APIs"],
                 job_title="Backend Engineer",
                 job_description="Build backend services",
                 job_requirements="FastAPI and SQL",
@@ -280,6 +280,38 @@ def test_generate_job_tailored_summary_raises_when_json_invalid() -> None:
 
     assert exc.value.status_code == status.HTTP_502_BAD_GATEWAY
     assert "valid JSON" in exc.value.detail
+
+
+def test_generate_job_tailored_summary_rejects_missing_generated_title() -> None:
+    class FakeCodexpertAgent:
+        async def async_query(self, _request):
+            return SimpleNamespace(
+                answer='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
+            )
+
+    snapshot = RepoMetadata(
+        coordinates=RepoCoordinates(owner="org", repo="repo"),
+        html_url="https://github.com/org/repo",
+        date_range="Jan 2024 - Present",
+        default_branch="main",
+        latest_commit_sha="abc123",
+    )
+
+    with pytest.raises(GithubError) as exc:
+        asyncio.run(
+            generate_job_tailored_project_summary(
+                snapshot=snapshot,
+                job_title="Backend Engineer",
+                job_description="Build backend services",
+                job_requirements="FastAPI and SQL",
+                company_name=None,
+                company_overview=None,
+                codexpert_agent=FakeCodexpertAgent(),
+            )
+        )
+
+    assert exc.value.status_code == status.HTTP_502_BAD_GATEWAY
+    assert "title" in exc.value.detail
 
 
 def test_generate_project_summary_uses_codexpert_title() -> None:
@@ -300,7 +332,7 @@ def test_generate_project_summary_uses_codexpert_title() -> None:
                 )
             )
 
-    snapshot = RepoSnapshot(
+    snapshot = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -332,7 +364,7 @@ def test_generate_project_summary_rejects_missing_generated_title() -> None:
                 answer='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
             )
 
-    snapshot = RepoSnapshot(
+    snapshot = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -340,7 +372,7 @@ def test_generate_project_summary_rejects_missing_generated_title() -> None:
         latest_commit_sha="abc123",
     )
 
-    with pytest.raises(GithubLoaderError) as exc:
+    with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_project_summary(
                 snapshot=snapshot,
@@ -363,7 +395,7 @@ def test_generate_project_summary_rejects_wrong_bullet_count() -> None:
                 )
             )
 
-    snapshot = RepoSnapshot(
+    snapshot = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -371,7 +403,7 @@ def test_generate_project_summary_rejects_wrong_bullet_count() -> None:
         latest_commit_sha="abc123",
     )
 
-    with pytest.raises(GithubLoaderError) as exc:
+    with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_project_summary(
                 snapshot=snapshot,

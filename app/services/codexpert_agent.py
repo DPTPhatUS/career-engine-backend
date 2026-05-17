@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import status
 
 from app.core.config import Settings
-from app.services.github_loader import GithubLoaderError, RepoSnapshot
+from app.services.github_loader import GithubError, RepoMetadata
 
 
 def build_codexpert_agent(settings: Settings):
@@ -17,7 +17,7 @@ def build_codexpert_agent(settings: Settings):
         from codexpert import AgentConfig, CodexpertAgent
         from codexpert.core.config import LLMConfig, LLMProvider
     except Exception as exc:  # noqa: BLE001
-        raise GithubLoaderError(
+        raise GithubError(
             "codexpert is not installed.",
             status.HTTP_503_SERVICE_UNAVAILABLE,
         ) from exc
@@ -26,7 +26,7 @@ def build_codexpert_agent(settings: Settings):
     try:
         llm_provider = LLMProvider(provider)
     except ValueError as exc:
-        raise GithubLoaderError(
+        raise GithubError(
             "Unsupported PROJECT_AUTOFILL_LLM_PROVIDER value.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         ) from exc
@@ -48,7 +48,7 @@ def build_codexpert_agent(settings: Settings):
     }
 
     if not api_key_value_by_provider[provider]:
-        raise GithubLoaderError(
+        raise GithubError(
             f"{api_key_env_by_provider[provider]} is not configured for project autofill.",
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
@@ -69,12 +69,12 @@ def build_codexpert_agent(settings: Settings):
     return CodexpertAgent(config)
 
 
-async def query_codexpert(agent: Any, snapshot: RepoSnapshot, question: str, operation: str) -> str:
+async def query_codexpert(agent: Any, snapshot: RepoMetadata, question: str, operation: str) -> str:
     request = _build_codexpert_request(snapshot, question, operation)
     try:
         response = await agent.async_query(request)
     except Exception as exc:  # noqa: BLE001
-        raise GithubLoaderError(
+        raise GithubError(
             "Codexpert generation failed while preparing project suggestions.",
             status.HTTP_502_BAD_GATEWAY,
         ) from exc
@@ -83,60 +83,15 @@ async def query_codexpert(agent: Any, snapshot: RepoSnapshot, question: str, ope
     return answer if isinstance(answer, str) else str(answer)
 
 
-def normalize_project_generation_output(
-    raw_text: str,
-    *,
-    fallback_title: str,
-    fallback_stack: list[str],
-    fallback_bullets: list[str] | None = None,
-) -> tuple[str, str, list[str]]:
+def parse_project_generation_output(raw_text: str) -> tuple[str, str, list[str]]:
     payload = _extract_json_payload(raw_text)
-    title = _normalize_title(payload.get("title"), fallback_title)
-    tech_stack = _normalize_tech_stack(payload.get("tech_stack"), fallback_stack)
-    bullets = _normalize_bullets(payload.get("bullets"), title, fallback_bullets)
+    title = _normalize_title(payload.get("title"))
+    tech_stack = _normalize_tech_stack(payload.get("tech_stack"))
+    bullets = _normalize_bullets(payload.get("bullets"))
     return title, tech_stack, bullets
 
 
-def normalize_generation_output(
-    raw_text: str,
-    fallback_stack: list[str],
-    repo_title: str,
-    fallback_bullets: list[str] | None = None,
-) -> tuple[str, list[str]]:
-    _title, tech_stack, bullets = normalize_project_generation_output(
-        raw_text,
-        fallback_title=repo_title,
-        fallback_stack=fallback_stack,
-        fallback_bullets=fallback_bullets,
-    )
-    return tech_stack, bullets
-
-
-def merge_stack_fallback(existing_tech_stack: str | None, snapshot_stack: list[str]) -> list[str]:
-    values: list[str] = []
-
-    if existing_tech_stack:
-        values.extend(part.strip() for part in re.split(r",|\n|\|", existing_tech_stack) if part.strip())
-    values.extend(snapshot_stack)
-
-    seen: set[str] = set()
-    deduplicated: list[str] = []
-    for value in values:
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduplicated.append(value)
-
-    return deduplicated
-
-
-def fallback_project_title(repo_name: str) -> str:
-    fallback = re.sub(r"[-_]+", " ", repo_name).strip()
-    return " ".join(word.capitalize() for word in fallback.split()) if fallback else repo_name
-
-
-def _build_codexpert_request(snapshot: RepoSnapshot, question: str, operation: str) -> Any:
+def _build_codexpert_request(snapshot: RepoMetadata, question: str, operation: str) -> Any:
     repo_id = _build_codexpert_repo_id(snapshot)
     try:
         from codexpert import QueryRequest, RepoSpec
@@ -161,7 +116,7 @@ def _build_codexpert_request(snapshot: RepoSnapshot, question: str, operation: s
         )
 
 
-def _build_codexpert_repo_id(snapshot: RepoSnapshot) -> str:
+def _build_codexpert_repo_id(snapshot: RepoMetadata) -> str:
     raw = (
         f"{snapshot.coordinates.owner}-{snapshot.coordinates.repo}-"
         f"{snapshot.default_branch}-{snapshot.latest_commit_sha or 'latest'}"
@@ -172,7 +127,10 @@ def _build_codexpert_repo_id(snapshot: RepoSnapshot) -> str:
 def _extract_json_payload(raw_text: str) -> dict[str, Any]:
     text = raw_text.strip()
     if not text:
-        return {}
+        raise GithubError(
+            "Codexpert generation must return valid JSON.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
 
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
@@ -187,34 +145,45 @@ def _extract_json_payload(raw_text: str) -> dict[str, Any]:
 
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
-        return {}
+        raise GithubError(
+            "Codexpert generation must return valid JSON.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
 
     try:
         parsed = json.loads(match.group(0))
     except json.JSONDecodeError:
-        return {}
+        raise GithubError(
+            "Codexpert generation must return valid JSON.",
+            status.HTTP_502_BAD_GATEWAY,
+        ) from None
 
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        raise GithubError(
+            "Codexpert generation must return a JSON object.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
+    return parsed
 
 
-def _normalize_title(raw_title: Any, fallback_title: str) -> str:
+def _normalize_title(raw_title: Any) -> str:
     if isinstance(raw_title, str):
         cleaned = re.sub(r"\s+", " ", raw_title.strip())
         if cleaned:
             return cleaned[:120]
-    return fallback_title
+    raise GithubError(
+        "Codexpert generation must include a non-empty title.",
+        status.HTTP_502_BAD_GATEWAY,
+    )
 
 
-def _normalize_tech_stack(raw_stack: Any, fallback_stack: list[str]) -> str:
+def _normalize_tech_stack(raw_stack: Any) -> str:
     candidates: list[str] = []
 
     if isinstance(raw_stack, list):
         candidates.extend(str(item) for item in raw_stack)
     elif isinstance(raw_stack, str):
         candidates.extend(re.split(r",|\n|\|", raw_stack))
-
-    if not candidates:
-        candidates.extend(fallback_stack)
 
     normalized: list[str] = []
     seen: set[str] = set()
@@ -230,28 +199,23 @@ def _normalize_tech_stack(raw_stack: Any, fallback_stack: list[str]) -> str:
         normalized.append(cleaned)
 
     if not normalized:
-        normalized = ["Git", "Software Development"]
+        raise GithubError(
+            "Codexpert generation must include a non-empty tech_stack.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
 
     return ", ".join(normalized[:10])
 
 
-def _normalize_bullets(
-    raw_bullets: Any,
-    repo_title: str,
-    fallback_bullets: list[str] | None = None,
-) -> list[str]:
-    bullets: list[str] = []
-
-    if isinstance(raw_bullets, list):
-        bullets.extend(str(item) for item in raw_bullets)
-    elif isinstance(raw_bullets, str):
-        bullets.extend(line for line in raw_bullets.splitlines() if line.strip())
-
-    if not bullets and fallback_bullets:
-        bullets.extend(fallback_bullets)
+def _normalize_bullets(raw_bullets: Any) -> list[str]:
+    if not isinstance(raw_bullets, list):
+        raise GithubError(
+            "Codexpert generation must include exactly 3 bullets.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
 
     normalized: list[str] = []
-    for bullet in bullets:
+    for bullet in raw_bullets:
         cleaned = re.sub(r"^\s*[-*•\d.)]+\s*", "", str(bullet).strip())
         cleaned = re.sub(r"\s+", " ", cleaned)
         if not cleaned:
@@ -259,10 +223,10 @@ def _normalize_bullets(
         if cleaned[-1] not in ".!?":
             cleaned = f"{cleaned}."
         normalized.append(cleaned)
-        if len(normalized) == 3:
-            break
 
-    while len(normalized) < 3:
-        normalized.append(f"Built and refined {repo_title} using repository-backed implementation evidence.")
-
-    return normalized[:3]
+    if len(normalized) != 3:
+        raise GithubError(
+            "Codexpert generation must include exactly 3 non-empty bullets.",
+            status.HTTP_502_BAD_GATEWAY,
+        )
+    return normalized

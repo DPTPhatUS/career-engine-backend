@@ -14,7 +14,7 @@ from app.core.config import Settings
 _SUPPORTED_GITHUB_HOSTS = {"github.com", "www.github.com"}
 
 
-class GithubLoaderError(Exception):
+class GithubError(Exception):
     def __init__(self, detail: str, status_code: int = status.HTTP_400_BAD_REQUEST) -> None:
         super().__init__(detail)
         self.detail = detail
@@ -28,7 +28,7 @@ class RepoCoordinates:
 
 
 @dataclass(slots=True)
-class RepoSnapshot:
+class RepoMetadata:
     coordinates: RepoCoordinates
     html_url: str
     date_range: str
@@ -39,20 +39,20 @@ class RepoSnapshot:
 def parse_github_repo_url(github_url: str) -> RepoCoordinates:
     parsed = urlparse(github_url)
     if parsed.scheme not in {"http", "https"}:
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub URL must start with http:// or https://.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
     if parsed.netloc.lower() not in _SUPPORTED_GITHUB_HOSTS:
-        raise GithubLoaderError(
+        raise GithubError(
             "Only github.com repository URLs are supported.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
     path_parts = [part for part in parsed.path.split("/") if part]
     if len(path_parts) < 2:
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub URL must include both owner and repository name.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -63,7 +63,7 @@ def parse_github_repo_url(github_url: str) -> RepoCoordinates:
         repo = repo[:-4]
 
     if not owner or not repo:
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub URL must include both owner and repository name.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -71,7 +71,7 @@ def parse_github_repo_url(github_url: str) -> RepoCoordinates:
     return RepoCoordinates(owner=owner, repo=repo)
 
 
-async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) -> RepoSnapshot:
+async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) -> RepoMetadata:
     async with httpx.AsyncClient(timeout=settings.project_autofill_http_timeout_seconds) as client:
         repo_response = await _github_request(client, settings, f"repos/{coordinates.owner}/{coordinates.repo}")
         repo_payload = repo_response.json()
@@ -88,7 +88,7 @@ async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) 
 
     html_url = repo_payload.get("html_url") or f"https://github.com/{coordinates.owner}/{coordinates.repo}"
 
-    return RepoSnapshot(
+    return RepoMetadata(
         coordinates=coordinates,
         html_url=html_url,
         date_range=format_project_date_range(start_dt, end_dt),
@@ -129,7 +129,7 @@ async def _fetch_commit_bounds(
             f"repos/{coordinates.owner}/{coordinates.repo}/commits",
             params={"sha": branch, "per_page": 1},
         )
-    except GithubLoaderError as exc:
+    except GithubError as exc:
         if exc.status_code == status.HTTP_409_CONFLICT:
             return None, None, None
         raise
@@ -153,7 +153,7 @@ async def _fetch_commit_bounds(
                 parsed_oldest = _parse_commit_datetime(oldest_items[0])
                 if parsed_oldest is not None:
                     oldest = parsed_oldest
-        except GithubLoaderError:
+        except GithubError:
             pass
 
     if newest is None or oldest is None:
@@ -179,7 +179,7 @@ async def _github_request(
     try:
         response = await client.get(url, params=params, headers=headers)
     except httpx.RequestError as exc:
-        raise GithubLoaderError(
+        raise GithubError(
             "Unable to reach GitHub API right now.",
             status.HTTP_502_BAD_GATEWAY,
         ) from exc
@@ -188,32 +188,32 @@ async def _github_request(
         return response
 
     if response.status_code == status.HTTP_404_NOT_FOUND:
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub repository was not found or is not publicly accessible.",
             status.HTTP_404_NOT_FOUND,
         )
 
     if response.status_code == status.HTTP_403_FORBIDDEN:
         if response.headers.get("x-ratelimit-remaining") == "0":
-            raise GithubLoaderError(
+            raise GithubError(
                 "GitHub API rate limit reached. Please retry later.",
                 status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub repository is not accessible with the current credentials.",
             status.HTTP_403_FORBIDDEN,
         )
 
     if response.status_code == status.HTTP_409_CONFLICT:
-        raise GithubLoaderError("Repository has no commit history.", status.HTTP_409_CONFLICT)
+        raise GithubError("Repository has no commit history.", status.HTTP_409_CONFLICT)
 
     if response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT:
-        raise GithubLoaderError(
+        raise GithubError(
             "GitHub repository request was invalid.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
-    raise GithubLoaderError(
+    raise GithubError(
         f"GitHub API request failed with status {response.status_code}.",
         status.HTTP_502_BAD_GATEWAY,
     )

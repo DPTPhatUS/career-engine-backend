@@ -505,7 +505,7 @@ def test_autofill_project_maps_service_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake_autofill_project_from_github(github_url: str, settings):
-        raise projects_endpoints.GithubLoaderError(
+        raise projects_endpoints.GithubError(
             "Only github.com repository URLs are supported.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -698,7 +698,7 @@ def test_tailor_projects_maps_service_error(client: TestClient, monkeypatch: pyt
             company_overview,
             settings,
         )
-        raise projects_endpoints.GithubLoaderError(
+        raise projects_endpoints.GithubError(
             "Selected projects were not found for current user: project-2.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
