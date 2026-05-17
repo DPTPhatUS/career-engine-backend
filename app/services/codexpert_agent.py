@@ -69,8 +69,8 @@ def build_codexpert_agent(settings: Settings):
     return CodexpertAgent(config)
 
 
-async def query_codexpert(agent: Any, snapshot: RepoMetadata, question: str, operation: str) -> str:
-    request = _build_codexpert_request(snapshot, question, operation)
+async def query_codexpert(agent: Any, repo_metadata: RepoMetadata, question: str, operation: str) -> str:
+    request = _build_codexpert_request(repo_metadata, question, operation)
     try:
         response = await agent.async_query(request)
     except Exception as exc:  # noqa: BLE001
@@ -91,12 +91,12 @@ def parse_project_generation_output(raw_text: str) -> tuple[str, str, list[str]]
     return title, tech_stack, bullets
 
 
-def _build_codexpert_request(snapshot: RepoMetadata, question: str, operation: str) -> Any:
-    repo_id = _build_codexpert_repo_id(snapshot)
+def _build_codexpert_request(repo_metadata: RepoMetadata, question: str, operation: str) -> Any:
+    repo_id = _build_codexpert_repo_id(repo_metadata)
     try:
         from codexpert import QueryRequest, RepoSpec
 
-        repo = RepoSpec(repo_id=repo_id, source=snapshot.html_url, ref=snapshot.default_branch)
+        repo = RepoSpec(repo_id=repo_id, source=repo_metadata.html_url, ref=repo_metadata.default_branch)
         return QueryRequest(
             repo_id=repo_id,
             question=question,
@@ -105,7 +105,7 @@ def _build_codexpert_request(snapshot: RepoMetadata, question: str, operation: s
             metadata={"operation": operation},
         )
     except Exception:  # noqa: BLE001
-        repo = SimpleNamespace(repo_id=repo_id, source=snapshot.html_url, ref=snapshot.default_branch)
+        repo = SimpleNamespace(repo_id=repo_id, source=repo_metadata.html_url, ref=repo_metadata.default_branch)
         return SimpleNamespace(
             repo_id=repo_id,
             question=question,
@@ -116,10 +116,10 @@ def _build_codexpert_request(snapshot: RepoMetadata, question: str, operation: s
         )
 
 
-def _build_codexpert_repo_id(snapshot: RepoMetadata) -> str:
+def _build_codexpert_repo_id(repo_metadata: RepoMetadata) -> str:
     raw = (
-        f"{snapshot.coordinates.owner}-{snapshot.coordinates.repo}-"
-        f"{snapshot.default_branch}-{snapshot.latest_commit_sha or 'latest'}"
+        f"{repo_metadata.coordinates.owner}-{repo_metadata.coordinates.repo}-"
+        f"{repo_metadata.default_branch}-{repo_metadata.latest_commit_sha or 'latest'}"
     )
     return re.sub(r"[^A-Za-z0-9-]+", "-", raw).strip("-").lower() or "repo"
 

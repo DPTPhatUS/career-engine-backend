@@ -71,7 +71,7 @@ def parse_github_repo_url(github_url: str) -> RepoCoordinates:
     return RepoCoordinates(owner=owner, repo=repo)
 
 
-async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) -> RepoMetadata:
+async def fetch_repo_metadata(coordinates: RepoCoordinates, settings: Settings) -> RepoMetadata:
     async with httpx.AsyncClient(timeout=settings.project_autofill_http_timeout_seconds) as client:
         repo_response = await _github_request(client, settings, f"repos/{coordinates.owner}/{coordinates.repo}")
         repo_payload = repo_response.json()

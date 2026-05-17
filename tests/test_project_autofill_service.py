@@ -200,7 +200,7 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
         _ = github_url
         return RepoCoordinates(owner="org", repo="repo")
 
-    async def fake_fetch_repo_snapshot(coordinates: RepoCoordinates, settings) -> RepoMetadata:
+    async def fake_fetch_repo_metadata(coordinates: RepoCoordinates, settings) -> RepoMetadata:
         _ = settings
         return RepoMetadata(
             coordinates=coordinates,
@@ -227,7 +227,7 @@ def test_tailor_projects_for_job_returns_mixed_success(monkeypatch: pytest.Monke
 
     monkeypatch.setattr("app.services.project_tailor.list_projects_by_ids", fake_list_projects_by_ids)
     monkeypatch.setattr("app.services.project_tailor.parse_github_repo_url", fake_parse_github_repo_url)
-    monkeypatch.setattr("app.services.project_tailor.fetch_repo_snapshot", fake_fetch_repo_snapshot)
+    monkeypatch.setattr("app.services.project_tailor.fetch_repo_metadata", fake_fetch_repo_metadata)
     monkeypatch.setattr("app.services.codexpert_agent.build_codexpert_agent", lambda settings: FakeCodexpertAgent())
 
     payload = asyncio.run(
@@ -257,7 +257,7 @@ def test_generate_job_tailored_summary_raises_when_json_invalid() -> None:
         async def async_query(self, _request):
             return SimpleNamespace(answer="not-json")
 
-    snapshot = RepoMetadata(
+    repo_metadata = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -268,7 +268,7 @@ def test_generate_job_tailored_summary_raises_when_json_invalid() -> None:
     with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_job_tailored_project_summary(
-                snapshot=snapshot,
+                repo_metadata=repo_metadata,
                 job_title="Backend Engineer",
                 job_description="Build backend services",
                 job_requirements="FastAPI and SQL",
@@ -289,7 +289,7 @@ def test_generate_job_tailored_summary_rejects_missing_generated_title() -> None
                 answer='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
             )
 
-    snapshot = RepoMetadata(
+    repo_metadata = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -300,7 +300,7 @@ def test_generate_job_tailored_summary_rejects_missing_generated_title() -> None
     with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_job_tailored_project_summary(
-                snapshot=snapshot,
+                repo_metadata=repo_metadata,
                 job_title="Backend Engineer",
                 job_description="Build backend services",
                 job_requirements="FastAPI and SQL",
@@ -332,7 +332,7 @@ def test_generate_project_summary_uses_codexpert_title() -> None:
                 )
             )
 
-    snapshot = RepoMetadata(
+    repo_metadata = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -342,7 +342,7 @@ def test_generate_project_summary_uses_codexpert_title() -> None:
 
     title, tech_stack, bullets = asyncio.run(
         generate_project_summary(
-            snapshot=snapshot,
+            repo_metadata=repo_metadata,
             settings=SimpleNamespace(),
             codexpert_agent=FakeCodexpertAgent(),
         )
@@ -364,7 +364,7 @@ def test_generate_project_summary_rejects_missing_generated_title() -> None:
                 answer='{"tech_stack": "Python, FastAPI", "bullets": ["Built APIs", "Improved tests", "Reduced latency"]}'
             )
 
-    snapshot = RepoMetadata(
+    repo_metadata = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -375,7 +375,7 @@ def test_generate_project_summary_rejects_missing_generated_title() -> None:
     with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_project_summary(
-                snapshot=snapshot,
+                repo_metadata=repo_metadata,
                 settings=SimpleNamespace(),
                 codexpert_agent=FakeCodexpertAgent(),
             )
@@ -395,7 +395,7 @@ def test_generate_project_summary_rejects_wrong_bullet_count() -> None:
                 )
             )
 
-    snapshot = RepoMetadata(
+    repo_metadata = RepoMetadata(
         coordinates=RepoCoordinates(owner="org", repo="repo"),
         html_url="https://github.com/org/repo",
         date_range="Jan 2024 - Present",
@@ -406,7 +406,7 @@ def test_generate_project_summary_rejects_wrong_bullet_count() -> None:
     with pytest.raises(GithubError) as exc:
         asyncio.run(
             generate_project_summary(
-                snapshot=snapshot,
+                repo_metadata=repo_metadata,
                 settings=SimpleNamespace(),
                 codexpert_agent=FakeCodexpertAgent(),
             )

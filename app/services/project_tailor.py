@@ -12,7 +12,7 @@ from app.services import codexpert_agent as codexpert_agent_service
 from app.services.github_loader import (
     GithubError,
     RepoMetadata,
-    fetch_repo_snapshot,
+    fetch_repo_metadata,
     parse_github_repo_url,
 )
 
@@ -108,7 +108,7 @@ async def _tailor_single_project(
 
     try:
         coordinates = parse_github_repo_url(github_url)
-        snapshot = await fetch_repo_snapshot(coordinates, settings)
+        repo_metadata = await fetch_repo_metadata(coordinates, settings)
     except GithubError as exc:
         return None, {
             "project_id": project.id,
@@ -118,7 +118,7 @@ async def _tailor_single_project(
 
     try:
         title, tech_stack, bullets = await generate_job_tailored_project_summary(
-            snapshot=snapshot,
+            repo_metadata=repo_metadata,
             job_title=job_title,
             job_description=job_description,
             job_requirements=job_requirements,
@@ -137,7 +137,7 @@ async def _tailor_single_project(
         "project_id": project.id,
         "title": title,
         "date_range": project.date_range,
-        "github_url": snapshot.html_url,
+        "github_url": repo_metadata.html_url,
         "tech_stack": tech_stack,
         "bullets": bullets,
     }, None
@@ -145,7 +145,7 @@ async def _tailor_single_project(
 
 async def generate_job_tailored_project_summary(
     *,
-    snapshot: RepoMetadata,
+    repo_metadata: RepoMetadata,
     job_title: str,
     job_description: str,
     job_requirements: str,
@@ -160,7 +160,7 @@ async def generate_job_tailored_project_summary(
         company_name=company_name,
         company_overview=company_overview,
     )
-    raw_text = await codexpert_agent_service.query_codexpert(codexpert_agent, snapshot, question, "project_tailor")
+    raw_text = await codexpert_agent_service.query_codexpert(codexpert_agent, repo_metadata, question, "project_tailor")
     title, tech_stack, bullets = codexpert_agent_service.parse_project_generation_output(raw_text)
     return title, tech_stack, bullets
 
