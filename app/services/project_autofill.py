@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import status
@@ -14,49 +16,49 @@ from app.services.github_loader import (
     GithubLoaderError,
     RepoSnapshot,
     fetch_repo_snapshot,
-    load_repo_context,
     parse_github_repo_url,
 )
 
-_SYSTEM_PROMPT = """
-You generate resume-ready project summaries from repository evidence.
+_AUTOFILL_QUESTION = """
+Analyze this repository and generate resume-ready project metadata.
 Return only valid JSON with this exact shape:
 {
+  "title": "short project title",
   "tech_stack": "comma-separated technologies",
   "bullets": ["bullet 1", "bullet 2", "bullet 3"]
 }
 Rules:
-- Use only technologies and accomplishments supported by the repository context.
+- Use repository evidence from code, docs, package files, and configuration.
+- Generate the title from repository evidence, not from the GitHub URL alone.
 - Keep tech_stack concise and deduplicated.
 - Produce exactly 3 accomplishment bullets.
 - Bullets must be impact-oriented and written in past tense.
-- Do not include markdown or extra keys.
+- Do not include markdown, citations, or extra keys.
 """.strip()
 
-_TAILOR_SYSTEM_PROMPT = """
-You tailor resume-ready project descriptions for a specific job posting.
+_TAILOR_QUESTION = """
+Analyze this repository and tailor its resume project description for the target job.
 Return only valid JSON with this exact shape:
 {
   "tech_stack": "comma-separated technologies",
   "bullets": ["bullet 1", "bullet 2", "bullet 3"]
 }
 Rules:
-- Use only technologies and accomplishments grounded in repository evidence.
+- Use repository evidence from code, docs, package files, and configuration.
 - Adapt wording toward the target role and requirements.
 - Produce exactly 3 impact-oriented bullets in past tense.
 - Keep claims concrete, concise, and ATS-friendly.
-- Do not include markdown or extra keys.
+- Do not include markdown, citations, or extra keys.
 """.strip()
 
 
 async def autofill_project_from_github(github_url: str, settings: Settings) -> dict[str, Any]:
     coordinates = parse_github_repo_url(github_url)
     snapshot = await fetch_repo_snapshot(coordinates, settings)
-    code_context = await load_repo_context(snapshot, settings)
-    tech_stack, bullets = await generate_project_summary(snapshot, code_context, settings)
+    title, tech_stack, bullets = await generate_project_summary(snapshot, settings)
 
     return {
-        "title": snapshot.title,
+        "title": title,
         "date_range": snapshot.date_range,
         "github_url": snapshot.html_url,
         "tech_stack": tech_stack,
@@ -66,20 +68,19 @@ async def autofill_project_from_github(github_url: str, settings: Settings) -> d
 
 async def generate_project_summary(
     snapshot: RepoSnapshot,
-    code_context: str,
     settings: Settings,
-) -> tuple[str, list[str]]:
-    chat_model = _build_chat_model(settings)
-    user_prompt = _build_user_prompt(snapshot, code_context)
-    response = await _invoke_chat_model(
-        chat_model,
-        _SYSTEM_PROMPT,
-        user_prompt,
-        "LLM generation failed while preparing project autofill suggestions.",
+    codexpert_agent: Any | None = None,
+) -> tuple[str, str, list[str]]:
+    agent = codexpert_agent or _build_codexpert_agent(settings)
+    question = _build_autofill_question(snapshot)
+    raw_text = await _query_codexpert(agent, snapshot, question, "project_autofill")
+    fallback_title = _fallback_project_title(snapshot.coordinates.repo)
+    title, tech_stack, bullets = normalize_project_generation_output(
+        raw_text,
+        fallback_title=fallback_title,
+        fallback_stack=[],
     )
-
-    raw_text = _message_to_text(response)
-    return normalize_generation_output(raw_text, snapshot.stack_fallback, snapshot.title)
+    return title, tech_stack, bullets
 
 
 async def tailor_projects_for_job(
@@ -104,7 +105,7 @@ async def tailor_projects_for_job(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
-    chat_model = _build_chat_model(settings)
+    codexpert_agent = _build_codexpert_agent(settings)
     semaphore = asyncio.Semaphore(2)
 
     async def _run(project) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
@@ -116,7 +117,7 @@ async def tailor_projects_for_job(
                 job_requirements=job_requirements,
                 company_name=company_name,
                 company_overview=company_overview,
-                chat_model=chat_model,
+                codexpert_agent=codexpert_agent,
                 settings=settings,
             )
 
@@ -144,7 +145,7 @@ async def _tailor_single_project(
     job_requirements: str,
     company_name: str | None,
     company_overview: str | None,
-    chat_model: Any,
+    codexpert_agent: Any,
     settings: Settings,
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
     github_url = str(project.github_url).strip() if project.github_url else ""
@@ -158,7 +159,6 @@ async def _tailor_single_project(
     try:
         coordinates = parse_github_repo_url(github_url)
         snapshot = await fetch_repo_snapshot(coordinates, settings)
-        code_context = await load_repo_context(snapshot, settings)
     except GithubLoaderError as exc:
         return None, {
             "project_id": project.id,
@@ -173,13 +173,12 @@ async def _tailor_single_project(
             project_date_range=project.date_range,
             existing_tech_stack=project.tech_stack,
             existing_bullets=project.bullets or [],
-            code_context=code_context,
             job_title=job_title,
             job_description=job_description,
             job_requirements=job_requirements,
             company_name=company_name,
             company_overview=company_overview,
-            chat_model=chat_model,
+            codexpert_agent=codexpert_agent,
         )
     except GithubLoaderError as exc:
         return None, {
@@ -205,36 +204,25 @@ async def generate_job_tailored_project_summary(
     project_date_range: str,
     existing_tech_stack: str | None,
     existing_bullets: list[str],
-    code_context: str,
     job_title: str,
     job_description: str,
     job_requirements: str,
     company_name: str | None = None,
     company_overview: str | None = None,
-    chat_model: Any,
+    codexpert_agent: Any,
 ) -> tuple[str, list[str]]:
-    user_prompt = _build_job_tailor_user_prompt(
-        snapshot=snapshot,
+    question = _build_job_tailor_question(
         project_title=project_title,
         project_date_range=project_date_range,
-        code_context=code_context,
         job_title=job_title,
         job_description=job_description,
         job_requirements=job_requirements,
         company_name=company_name,
         company_overview=company_overview,
     )
-
-    response = await _invoke_chat_model(
-        chat_model,
-        _TAILOR_SYSTEM_PROMPT,
-        user_prompt,
-        "LLM generation failed while tailoring project suggestions to the job.",
-    )
-
-    raw_text = _message_to_text(response)
-    fallback_stack = _merge_stack_fallback(existing_tech_stack, snapshot.stack_fallback)
-    normalized_title = project_title.strip() if project_title.strip() else snapshot.title
+    raw_text = await _query_codexpert(codexpert_agent, snapshot, question, "project_tailor")
+    fallback_stack = _merge_stack_fallback(existing_tech_stack, [])
+    normalized_title = project_title.strip() if project_title.strip() else _fallback_project_title(snapshot.coordinates.repo)
     return normalize_generation_output(
         raw_text,
         fallback_stack,
@@ -243,157 +231,178 @@ async def generate_job_tailored_project_summary(
     )
 
 
+def normalize_project_generation_output(
+    raw_text: str,
+    *,
+    fallback_title: str,
+    fallback_stack: list[str],
+    fallback_bullets: list[str] | None = None,
+) -> tuple[str, str, list[str]]:
+    payload = _extract_json_payload(raw_text)
+    title = _normalize_title(payload.get("title"), fallback_title)
+    tech_stack = _normalize_tech_stack(payload.get("tech_stack"), fallback_stack)
+    bullets = _normalize_bullets(payload.get("bullets"), title, fallback_bullets)
+    return title, tech_stack, bullets
+
+
 def normalize_generation_output(
     raw_text: str,
     fallback_stack: list[str],
     repo_title: str,
     fallback_bullets: list[str] | None = None,
 ) -> tuple[str, list[str]]:
-    payload = _extract_json_payload(raw_text)
-
-    tech_stack = _normalize_tech_stack(payload.get("tech_stack"), fallback_stack)
-    bullets = _normalize_bullets(payload.get("bullets"), repo_title, fallback_bullets)
-
+    _title, tech_stack, bullets = normalize_project_generation_output(
+        raw_text,
+        fallback_title=repo_title,
+        fallback_stack=fallback_stack,
+        fallback_bullets=fallback_bullets,
+    )
     return tech_stack, bullets
 
 
-def _build_chat_model(settings: Settings):
+def _build_codexpert_agent(settings: Settings):
+    try:
+        from codexpert import AgentConfig, CodexpertAgent
+        from codexpert.core.config import LLMConfig, LLMProvider
+    except Exception as exc:  # noqa: BLE001
+        raise GithubLoaderError(
+            "codexpert is not installed.",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from exc
+
     provider = settings.project_autofill_llm_provider.lower().strip()
+    try:
+        llm_provider = LLMProvider(provider)
+    except ValueError as exc:
+        raise GithubLoaderError(
+            "Unsupported PROJECT_AUTOFILL_LLM_PROVIDER value.",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        ) from exc
 
-    if provider == "mistral":
-        if not settings.mistral_api_key:
-            raise GithubLoaderError(
-                "MISTRAL_API_KEY is not configured for project autofill.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        try:
-            from langchain_mistralai import ChatMistralAI
-        except Exception as exc:  # noqa: BLE001
-            raise GithubLoaderError(
-                "langchain-mistralai is not installed.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            ) from exc
+    model_by_provider = {
+        "mistral": settings.project_autofill_mistral_model,
+        "openai": settings.project_autofill_openai_model,
+        "gemini": settings.project_autofill_gemini_model,
+    }
+    api_key_env_by_provider = {
+        "mistral": "MISTRAL_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    api_key_value_by_provider = {
+        "mistral": settings.mistral_api_key,
+        "openai": settings.openai_api_key,
+        "gemini": settings.gemini_api_key,
+    }
 
-        return ChatMistralAI(
-            model=settings.project_autofill_mistral_model,
-            api_key=settings.mistral_api_key,
-            temperature=settings.project_autofill_llm_temperature,
-            timeout=settings.project_autofill_llm_timeout_seconds,
-            max_retries=2,
+    if not api_key_value_by_provider[provider]:
+        raise GithubLoaderError(
+            f"{api_key_env_by_provider[provider]} is not configured for project autofill.",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    if provider == "openai":
-        if not settings.openai_api_key:
-            raise GithubLoaderError(
-                "OPENAI_API_KEY is not configured for project autofill.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        try:
-            from langchain_openai import ChatOpenAI
-        except Exception as exc:  # noqa: BLE001
-            raise GithubLoaderError(
-                "langchain-openai is not installed.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            ) from exc
-
-        return ChatOpenAI(
-            model=settings.project_autofill_openai_model,
-            api_key=settings.openai_api_key,
+    workspace_dir = Path(settings.project_autofill_codexpert_workspace_dir).expanduser()
+    config = AgentConfig(
+        workspace_dir=workspace_dir,
+        top_k=settings.project_autofill_agent_top_k,
+        max_iterations=settings.project_autofill_agent_max_iterations,
+        llm=LLMConfig(
+            provider=llm_provider,
+            model=model_by_provider[provider],
+            api_key_env=api_key_env_by_provider[provider],
             temperature=settings.project_autofill_llm_temperature,
-            timeout=settings.project_autofill_llm_timeout_seconds,
-            max_retries=2,
-        )
-
-    if provider == "gemini":
-        if not settings.gemini_api_key:
-            raise GithubLoaderError(
-                "GEMINI_API_KEY is not configured for project autofill.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-        except Exception as exc:  # noqa: BLE001
-            raise GithubLoaderError(
-                "langchain-google-genai is not installed.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            ) from exc
-
-        return ChatGoogleGenerativeAI(
-            model=settings.project_autofill_gemini_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=settings.project_autofill_llm_temperature,
-            timeout=settings.project_autofill_llm_timeout_seconds,
-            max_retries=2,
-        )
-
-    raise GithubLoaderError(
-        "Unsupported PROJECT_AUTOFILL_LLM_PROVIDER value.",
-        status.HTTP_422_UNPROCESSABLE_CONTENT,
+            timeout_s=settings.project_autofill_llm_timeout_seconds,
+        ),
     )
+    return CodexpertAgent(config)
 
 
-def _build_user_prompt(snapshot: RepoSnapshot, code_context: str) -> str:
-    readme_excerpt = (snapshot.readme_text or "").strip()[:5000]
-    code_excerpt = code_context.strip()[: max(0, 120000)]
-    fallback_stack = ", ".join(snapshot.stack_fallback)
+async def _query_codexpert(agent: Any, snapshot: RepoSnapshot, question: str, operation: str) -> str:
+    request = _build_codexpert_request(snapshot, question, operation)
+    try:
+        response = await agent.async_query(request)
+    except Exception as exc:  # noqa: BLE001
+        raise GithubLoaderError(
+            "Codexpert generation failed while preparing project suggestions.",
+            status.HTTP_502_BAD_GATEWAY,
+        ) from exc
 
+    answer = getattr(response, "answer", "")
+    return answer if isinstance(answer, str) else str(answer)
+
+
+def _build_codexpert_request(snapshot: RepoSnapshot, question: str, operation: str) -> Any:
+    repo_id = _build_codexpert_repo_id(snapshot)
+    try:
+        from codexpert import QueryRequest, RepoSpec
+
+        repo = RepoSpec(repo_id=repo_id, source=snapshot.html_url, ref=snapshot.default_branch)
+        return QueryRequest(
+            repo_id=repo_id,
+            question=question,
+            top_k=5,
+            repo=repo,
+            metadata={"operation": operation},
+        )
+    except Exception:  # noqa: BLE001
+        repo = SimpleNamespace(repo_id=repo_id, source=snapshot.html_url, ref=snapshot.default_branch)
+        return SimpleNamespace(
+            repo_id=repo_id,
+            question=question,
+            top_k=5,
+            history=[],
+            repo=repo,
+            metadata={"operation": operation},
+        )
+
+
+def _build_codexpert_repo_id(snapshot: RepoSnapshot) -> str:
+    raw = (
+        f"{snapshot.coordinates.owner}-{snapshot.coordinates.repo}-"
+        f"{snapshot.default_branch}-{snapshot.latest_commit_sha or 'latest'}"
+    )
+    return re.sub(r"[^A-Za-z0-9-]+", "-", raw).strip("-").lower() or "repo"
+
+
+def _build_autofill_question(snapshot: RepoSnapshot) -> str:
     return (
-        "Repository metadata:\n"
-        f"- Name: {snapshot.coordinates.owner}/{snapshot.coordinates.repo}\n"
+        f"{_AUTOFILL_QUESTION}\n\n"
+        "Repository:\n"
+        f"- URL: {snapshot.html_url}\n"
+        f"- Owner: {snapshot.coordinates.owner}\n"
+        f"- Name: {snapshot.coordinates.repo}\n"
         f"- Default branch: {snapshot.default_branch}\n"
-        f"- Existing title candidate: {snapshot.title}\n"
-        f"- Date range candidate: {snapshot.date_range}\n"
-        f"- Fallback stack hints: {fallback_stack}\n\n"
-        "README excerpt:\n"
-        f"{readme_excerpt or '(No README available)'}\n\n"
-        "Code excerpt:\n"
-        f"{code_excerpt or '(No code excerpt available)'}\n"
     )
 
 
-def _build_job_tailor_user_prompt(
+def _build_job_tailor_question(
     *,
-    snapshot: RepoSnapshot,
     project_title: str,
     project_date_range: str,
-    code_context: str,
     job_title: str,
     job_description: str,
     job_requirements: str,
     company_name: str | None,
     company_overview: str | None,
 ) -> str:
-    readme_excerpt = (snapshot.readme_text or "").strip()[:5000]
-    code_excerpt = code_context.strip()[: max(0, 120000)]
-    fallback_stack = ", ".join(snapshot.stack_fallback) if snapshot.stack_fallback else "(No stack hints)"
-
     company_block = ""
     if company_name or company_overview:
-        overview_text = company_overview or "(No overview provided)"
-        name_line = f"- Company name: {company_name}\n" if company_name else ""
         company_block = (
             "Company context:\n"
-            f"{name_line}"
-            f"- Company overview:\n{overview_text}\n\n"
+            f"- Company name: {company_name or '(not provided)'}\n"
+            f"- Company overview:\n{company_overview or '(not provided)'}\n\n"
         )
 
     return (
-        "Job:\n"
+        f"{_TAILOR_QUESTION}\n\n"
+        "Existing project profile:\n"
+        f"- Project title: {project_title}\n"
+        f"- Date range: {project_date_range}\n\n"
+        "Target job:\n"
         f"- Job title: {job_title}\n"
         f"- Job description:\n{job_description}\n\n"
         f"- Job requirements:\n{job_requirements}\n\n"
         f"{company_block}"
-        "Project profile:\n"
-        f"- Project title: {project_title}\n"
-        f"- Date range: {project_date_range}\n"
-        "Repository evidence:\n"
-        f"- Name: {snapshot.coordinates.owner}/{snapshot.coordinates.repo}\n"
-        f"- Default branch: {snapshot.default_branch}\n"
-        f"- Fallback stack hints: {fallback_stack}\n\n"
-        "README excerpt:\n"
-        f"{readme_excerpt or '(No README available)'}\n\n"
-        "Code excerpt:\n"
-        f"{code_excerpt or '(No code excerpt available)'}\n"
     )
 
 
@@ -414,48 +423,6 @@ def _merge_stack_fallback(existing_tech_stack: str | None, snapshot_stack: list[
         deduplicated.append(value)
 
     return deduplicated
-
-
-async def _invoke_chat_model(
-    chat_model: Any,
-    system_prompt: str,
-    user_prompt: str,
-    failure_detail: str,
-) -> Any:
-    try:
-        response = await asyncio.to_thread(
-            chat_model.invoke,
-            [("system", system_prompt), ("human", user_prompt)],
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise GithubLoaderError(failure_detail, status.HTTP_502_BAD_GATEWAY) from exc
-
-    return response
-
-
-def _message_to_text(message: Any) -> str:
-    if hasattr(message, "text"):
-        text_value = getattr(message, "text")
-        if isinstance(text_value, str) and text_value.strip():
-            return text_value
-
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-                continue
-            if isinstance(block, dict):
-                block_text = block.get("text")
-                if isinstance(block_text, str):
-                    parts.append(block_text)
-        return "\n".join(parts)
-
-    return str(content)
 
 
 def _extract_json_payload(raw_text: str) -> dict[str, Any]:
@@ -484,6 +451,14 @@ def _extract_json_payload(raw_text: str) -> dict[str, Any]:
         return {}
 
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_title(raw_title: Any, fallback_title: str) -> str:
+    if isinstance(raw_title, str):
+        cleaned = re.sub(r"\s+", " ", raw_title.strip())
+        if cleaned:
+            return cleaned[:120]
+    return fallback_title
 
 
 def _normalize_tech_stack(raw_stack: Any, fallback_stack: list[str]) -> str:
@@ -521,63 +496,34 @@ def _normalize_bullets(
     repo_title: str,
     fallback_bullets: list[str] | None = None,
 ) -> list[str]:
-    candidates: list[str] = []
+    bullets: list[str] = []
 
-    if isinstance(raw_bullets, str):
-        candidates.extend(line.strip() for line in raw_bullets.splitlines() if line.strip())
-    elif isinstance(raw_bullets, list):
-        candidates.extend(str(item).strip() for item in raw_bullets if str(item).strip())
+    if isinstance(raw_bullets, list):
+        bullets.extend(str(item) for item in raw_bullets)
+    elif isinstance(raw_bullets, str):
+        bullets.extend(line for line in raw_bullets.splitlines() if line.strip())
 
-    def _clean_bullet_candidates(items: list[str]) -> list[str]:
-        cleaned_items: list[str] = []
-        seen_items: set[str] = set()
-        for raw_item in items:
-            cleaned = re.sub(r"^[-*\d\.)\s]+", "", str(raw_item)).strip()
-            if not cleaned:
-                continue
-            cleaned = cleaned.rstrip(".").strip()
-            if not cleaned:
-                continue
-            key = cleaned.lower()
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            cleaned_items.append(_finalize_sentence(cleaned))
-        return cleaned_items
+    if not bullets and fallback_bullets:
+        bullets.extend(fallback_bullets)
 
-    cleaned_bullets = _clean_bullet_candidates(candidates)
-
-    fallback_candidates: list[str] = []
-    if not cleaned_bullets and fallback_bullets:
-        fallback_candidates = _clean_bullet_candidates(list(fallback_bullets))
-
-    fallback = [
-        _finalize_sentence(
-            f"Built and shipped {repo_title} capabilities through modular backend and frontend components"
-        ),
-        _finalize_sentence(
-            f"Implemented maintainable architecture and tooling to improve {repo_title} reliability and developer velocity"
-        ),
-        _finalize_sentence(
-            "Enhanced project quality by iterating on features, fixes, and technical documentation across the repository"
-        ),
-    ]
-
-    result: list[str] = []
-    primary_candidates = cleaned_bullets or fallback_candidates
-    for item in primary_candidates + fallback:
-        key = item.lower()
-        if key in {existing.lower() for existing in result}:
+    normalized: list[str] = []
+    for bullet in bullets:
+        cleaned = re.sub(r"^\s*[-*•\d.)]+\s*", "", str(bullet).strip())
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if not cleaned:
             continue
-        result.append(item)
-        if len(result) == 3:
+        if cleaned[-1] not in ".!?":
+            cleaned = f"{cleaned}."
+        normalized.append(cleaned)
+        if len(normalized) == 3:
             break
 
-    return result
+    while len(normalized) < 3:
+        normalized.append(f"Built and refined {repo_title} using repository-backed implementation evidence.")
+
+    return normalized[:3]
 
 
-def _finalize_sentence(text: str) -> str:
-    sentence = re.sub(r"\s+", " ", text).strip()
-    if sentence and sentence[-1] not in {".", "!", "?"}:
-        sentence = f"{sentence}."
-    return sentence
+def _fallback_project_title(repo_name: str) -> str:
+    fallback = re.sub(r"[-_]+", " ", repo_name).strip()
+    return " ".join(word.capitalize() for word in fallback.split()) if fallback else repo_name

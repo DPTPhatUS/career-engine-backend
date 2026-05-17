@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     project_autofill_llm_temperature: float = 0.2
     project_autofill_llm_timeout_seconds: int = 45
     project_autofill_http_timeout_seconds: int = 20
-    project_autofill_max_files: int = 60
-    project_autofill_max_chars: int = 120000
+    project_autofill_codexpert_workspace_dir: str = ".codexpert"
+    project_autofill_agent_top_k: int = 5
+    project_autofill_agent_max_iterations: int = 6
 
     mistral_api_key: str = ""
     openai_api_key: str = ""

@@ -35,7 +35,7 @@ Main features:
 
 ## Prerequisites
 
-1. Python 3.11+
+1. Python 3.12+
 2. `uv` installed
 3. Postgres database
 4. Google OAuth Web application credentials from Google Cloud (client ID + client secret)

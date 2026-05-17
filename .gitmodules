@@ -1,0 +1,3 @@
+[submodule "vendor/codexpert"]
+	path = vendor/codexpert
+	url = git@github.com:DPTPhatUS/codexpert.git

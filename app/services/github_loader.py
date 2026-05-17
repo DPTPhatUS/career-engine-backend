@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,46 +12,6 @@ from fastapi import status
 from app.core.config import Settings
 
 _SUPPORTED_GITHUB_HOSTS = {"github.com", "www.github.com"}
-_IGNORED_PATH_PARTS = {
-    ".git",
-    ".next",
-    ".venv",
-    "__pycache__",
-    "build",
-    "coverage",
-    "dist",
-    "node_modules",
-    "vendor",
-}
-_ALLOWED_CODE_EXTENSIONS = {
-    ".c",
-    ".cpp",
-    ".cs",
-    ".css",
-    ".go",
-    ".h",
-    ".hpp",
-    ".html",
-    ".java",
-    ".js",
-    ".json",
-    ".jsx",
-    ".kt",
-    ".md",
-    ".php",
-    ".py",
-    ".rb",
-    ".rs",
-    ".sql",
-    ".swift",
-    ".toml",
-    ".ts",
-    ".tsx",
-    ".txt",
-    ".xml",
-    ".yaml",
-    ".yml",
-}
 
 
 class GithubLoaderError(Exception):
@@ -73,11 +31,9 @@ class RepoCoordinates:
 class RepoSnapshot:
     coordinates: RepoCoordinates
     html_url: str
-    title: str
     date_range: str
-    readme_text: str
     default_branch: str
-    stack_fallback: list[str]
+    latest_commit_sha: str | None = None
 
 
 def parse_github_repo_url(github_url: str) -> RepoCoordinates:
@@ -121,10 +77,8 @@ async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) 
         repo_payload = repo_response.json()
 
         default_branch = repo_payload.get("default_branch") or "main"
-        readme_text = await _fetch_readme_text(client, settings, coordinates)
-        start_dt, end_dt = await _fetch_commit_bounds(client, settings, coordinates, default_branch)
+        start_dt, end_dt, latest_commit_sha = await _fetch_commit_bounds(client, settings, coordinates, default_branch)
 
-    title = derive_project_title(coordinates.repo, readme_text)
     if start_dt is None or end_dt is None:
         created_at = _parse_github_datetime(repo_payload.get("created_at"))
         pushed_at = _parse_github_datetime(repo_payload.get("pushed_at"))
@@ -132,56 +86,15 @@ async def fetch_repo_snapshot(coordinates: RepoCoordinates, settings: Settings) 
         start_dt = created_at or updated_at or datetime.now(timezone.utc)
         end_dt = pushed_at or updated_at or start_dt
 
-    stack_fallback = _build_stack_fallback(repo_payload)
     html_url = repo_payload.get("html_url") or f"https://github.com/{coordinates.owner}/{coordinates.repo}"
 
     return RepoSnapshot(
         coordinates=coordinates,
         html_url=html_url,
-        title=title,
         date_range=format_project_date_range(start_dt, end_dt),
-        readme_text=readme_text,
         default_branch=default_branch,
-        stack_fallback=stack_fallback,
+        latest_commit_sha=latest_commit_sha,
     )
-
-
-async def load_repo_context(snapshot: RepoSnapshot, settings: Settings) -> str:
-    if not settings.github_token:
-        raise GithubLoaderError(
-            "GITHUB_TOKEN is required to scan repository code for autofill generation.",
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-
-    loader = _build_github_loader(snapshot.coordinates, snapshot.default_branch, settings)
-
-    try:
-        documents = await asyncio.to_thread(loader.load)
-    except Exception as exc:  # noqa: BLE001
-        raise GithubLoaderError(
-            "Failed to scan repository files for autofill generation.",
-            status.HTTP_502_BAD_GATEWAY,
-        ) from exc
-
-    return _build_code_context(
-        documents,
-        max_files=settings.project_autofill_max_files,
-        max_chars=settings.project_autofill_max_chars,
-    )
-
-
-def derive_project_title(repo_name: str, readme_text: str) -> str:
-    if readme_text:
-        lines = readme_text.splitlines()
-        first_line = lines[0] if lines else readme_text
-        match = re.match(r"^\s*#\s+(.+?)\s*$", first_line)
-        if match:
-            heading = _clean_markdown_title(match.group(1))
-            if heading:
-                return heading[:120]
-
-    fallback = re.sub(r"[-_]+", " ", repo_name).strip()
-    return " ".join(word.capitalize() for word in fallback.split()) if fallback else repo_name
 
 
 def format_project_date_range(
@@ -203,40 +116,12 @@ def format_project_date_range(
     return f"{start_label} - {end_label}"
 
 
-async def _fetch_readme_text(
-    client: httpx.AsyncClient,
-    settings: Settings,
-    coordinates: RepoCoordinates,
-) -> str:
-    try:
-        readme_response = await _github_request(
-            client,
-            settings,
-            f"repos/{coordinates.owner}/{coordinates.repo}/readme",
-        )
-    except GithubLoaderError as exc:
-        if exc.status_code == status.HTTP_404_NOT_FOUND:
-            return ""
-        raise
-
-    payload = readme_response.json()
-    encoded_content = payload.get("content")
-    if not encoded_content:
-        return ""
-
-    try:
-        normalized = encoded_content.replace("\n", "")
-        return base64.b64decode(normalized).decode("utf-8", errors="ignore")
-    except Exception:  # noqa: BLE001
-        return ""
-
-
 async def _fetch_commit_bounds(
     client: httpx.AsyncClient,
     settings: Settings,
     coordinates: RepoCoordinates,
     branch: str,
-) -> tuple[datetime | None, datetime | None]:
+) -> tuple[datetime | None, datetime | None, str | None]:
     try:
         latest_response = await _github_request(
             client,
@@ -246,14 +131,17 @@ async def _fetch_commit_bounds(
         )
     except GithubLoaderError as exc:
         if exc.status_code == status.HTTP_409_CONFLICT:
-            return None, None
+            return None, None, None
         raise
 
     latest_items = latest_response.json()
     if not latest_items:
-        return None, None
+        return None, None, None
 
     newest = _parse_commit_datetime(latest_items[0])
+    latest_commit_sha = latest_items[0].get("sha") if isinstance(latest_items[0], dict) else None
+    if not isinstance(latest_commit_sha, str) or not latest_commit_sha:
+        latest_commit_sha = None
     oldest = newest
 
     last_link = _extract_last_page_link(latest_response.headers.get("Link", ""))
@@ -269,9 +157,9 @@ async def _fetch_commit_bounds(
             pass
 
     if newest is None or oldest is None:
-        return None, None
+        return None, None, latest_commit_sha
 
-    return min(oldest, newest), max(oldest, newest)
+    return min(oldest, newest), max(oldest, newest), latest_commit_sha
 
 
 async def _github_request(
@@ -331,96 +219,6 @@ async def _github_request(
     )
 
 
-def _build_github_loader(coordinates: RepoCoordinates, branch: str, settings: Settings):
-    try:
-        from langchain_community.document_loaders import GithubFileLoader
-    except Exception as exc:  # noqa: BLE001
-        raise GithubLoaderError(
-            "LangChain GitHub loaders are unavailable. Install langchain-community.",
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-        ) from exc
-
-    repo_name = f"{coordinates.owner}/{coordinates.repo}"
-    access_token = settings.github_token
-
-    return GithubFileLoader(
-        repo=repo_name,
-        branch=branch,
-        access_token=access_token,
-        github_api_url=settings.github_api_base_url,
-        file_filter=_repo_file_filter,
-    )
-
-
-def _repo_file_filter(path: str) -> bool:
-    lower = path.lower()
-    parts = {part for part in lower.split("/") if part}
-    if parts.intersection(_IGNORED_PATH_PARTS):
-        return False
-
-    if lower.endswith("dockerfile"):
-        return True
-
-    return any(lower.endswith(ext) for ext in _ALLOWED_CODE_EXTENSIONS)
-
-
-def _build_code_context(documents: list[Any], max_files: int, max_chars: int) -> str:
-    snippets: list[str] = []
-    total_chars = 0
-
-    for document in documents:
-        if len(snippets) >= max_files or total_chars >= max_chars:
-            break
-
-        text = (getattr(document, "page_content", "") or "").strip()
-        if not text:
-            continue
-
-        metadata = getattr(document, "metadata", {}) or {}
-        path = metadata.get("path") or metadata.get("source") or "unknown"
-
-        trimmed = text[:4000]
-        chunk = f"\n# File: {path}\n{trimmed}\n"
-        if total_chars + len(chunk) > max_chars:
-            remaining = max_chars - total_chars
-            if remaining < 200:
-                break
-            chunk = chunk[:remaining]
-
-        snippets.append(chunk)
-        total_chars += len(chunk)
-
-    return "\n".join(snippets)
-
-
-def _build_stack_fallback(repo_payload: dict[str, Any]) -> list[str]:
-    values: list[str] = []
-
-    language = repo_payload.get("language")
-    if isinstance(language, str) and language.strip():
-        values.append(language.strip())
-
-    topics = repo_payload.get("topics")
-    if isinstance(topics, list):
-        for topic in topics:
-            if not isinstance(topic, str):
-                continue
-            normalized = " ".join(part.capitalize() for part in topic.split("-"))
-            if normalized.strip():
-                values.append(normalized.strip())
-
-    seen: set[str] = set()
-    deduplicated: list[str] = []
-    for value in values:
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduplicated.append(value)
-
-    return deduplicated
-
-
 def _extract_last_page_link(link_header: str) -> str | None:
     if not link_header:
         return None
@@ -456,14 +254,6 @@ def _parse_github_datetime(raw_value: Any) -> datetime | None:
         return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
     except ValueError:
         return None
-
-
-def _clean_markdown_title(value: str) -> str:
-    cleaned = value.strip()
-    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
-    cleaned = re.sub(r"[`*_#]+", "", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip()
 
 
 def _build_github_api_url(base_url: str, path: str) -> str:
