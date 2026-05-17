@@ -301,7 +301,7 @@ def _build_codexpert_agent(settings: Settings):
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    workspace_dir = Path(settings.project_autofill_codexpert_workspace_dir).expanduser()
+    workspace_dir = Path(settings.project_autofill_agent_workspace_dir).expanduser()
     config = AgentConfig(
         workspace_dir=workspace_dir,
         top_k=settings.project_autofill_agent_top_k,
