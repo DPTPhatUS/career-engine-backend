@@ -6,9 +6,9 @@ from app.schemas.resume import EducationItem, ProjectItem, SkillCategory
 
 
 class PortfolioContactOptions(BaseModel):
-    include_email: bool = False
-    include_phone: bool = False
-    include_address: bool = False
+    include_email: bool = True
+    include_phone: bool = True
+    include_address: bool = True
     include_github: bool = True
 
 

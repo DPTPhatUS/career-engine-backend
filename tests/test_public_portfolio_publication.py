@@ -61,7 +61,7 @@ def _resume_payload() -> dict:
 
 
 def _contact(
-    email: bool = False, phone: bool = False, address: bool = False, github: bool = True
+    email: bool = True, phone: bool = True, address: bool = True, github: bool = True
 ) -> PortfolioContactOptions:
     return PortfolioContactOptions(
         include_email=email,
@@ -83,7 +83,7 @@ def _selection(
     )
 
 
-def test_publish_defaults_redact_email_phone_address() -> None:
+def test_publish_defaults_include_email_phone_address() -> None:
     resume = SimpleNamespace(id="resume-1", payload=_resume_payload())
     snapshot = build_public_portfolio_snapshot(
         resume=resume,
@@ -93,13 +93,13 @@ def test_publish_defaults_redact_email_phone_address() -> None:
     )
     personal = snapshot.personal_info
     assert personal.full_name == "Ada Lovelace"
-    assert personal.email is None
-    assert personal.phone is None
-    assert personal.address is None
+    assert personal.email == "ada@example.com"
+    assert personal.phone == "+1 555 0100"
+    assert personal.address == "City, ST"
     assert personal.github_url == "https://github.com/ada"
 
 
-def test_publish_includes_opted_in_email_only() -> None:
+def test_publish_hides_disabled_contact_fields() -> None:
     resume = SimpleNamespace(id="resume-1", payload=_resume_payload())
     snapshot = build_public_portfolio_snapshot(
         resume=resume,
