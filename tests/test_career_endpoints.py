@@ -423,6 +423,121 @@ def test_list_projects_success(client: TestClient, monkeypatch: pytest.MonkeyPat
     assert body[0]["id"] == "project-1"
 
 
+def test_rank_projects_returns_ranked_scores(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
+        _ = db
+        return SimpleNamespace(
+            id=job_id,
+            user_id=user_id,
+            title="Backend Engineer",
+            job_description="Build scalable APIs",
+            job_requirements="FastAPI, PostgreSQL",
+        )
+
+    async def fake_list_projects_by_user_id(db, user_id: str):
+        _ = db
+        return [
+            SimpleNamespace(
+                id="project-1",
+                user_id=user_id,
+                sort_order=1,
+                title="API Platform",
+                date_range="Jan 2024 - Present",
+                github_url=None,
+                tech_stack="FastAPI",
+                bullets=["Built APIs"],
+                created_at=_ts(),
+                updated_at=_ts(),
+            ),
+            SimpleNamespace(
+                id="project-2",
+                user_id=user_id,
+                sort_order=0,
+                title="ETL Toolkit",
+                date_range="Jan 2024 - Present",
+                github_url="https://github.com/org/repo",
+                tech_stack="Python",
+                bullets=["Built pipelines"],
+                created_at=_ts(),
+                updated_at=_ts(),
+            ),
+        ]
+
+    async def fake_rank_projects_for_job(*, db, user_id: str, job, projects, settings):
+        _ = (db, settings)
+        assert user_id == "user-1"
+        assert job.id == "job-1"
+        assert len(projects) == 2
+        return [
+            {"project_id": "project-2", "similarity_score": 93},
+            {"project_id": "project-1", "similarity_score": 71},
+        ]
+
+    monkeypatch.setattr(projects_endpoints, "get_job_by_id", fake_get_job_by_id)
+    monkeypatch.setattr(projects_endpoints, "list_projects_by_user_id", fake_list_projects_by_user_id)
+    monkeypatch.setattr(projects_endpoints, "rank_projects_for_job", fake_rank_projects_for_job)
+
+    response = client.post("/api/v1/projects/rank", json={"job_id": "job-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ranked_projects": [
+            {"project_id": "project-2", "similarity_score": 93},
+            {"project_id": "project-1", "similarity_score": 71},
+        ]
+    }
+
+
+def test_rank_projects_returns_404_for_unknown_job(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
+        _ = (db, user_id, job_id)
+        return None
+
+    monkeypatch.setattr(projects_endpoints, "get_job_by_id", fake_get_job_by_id)
+
+    response = client.post("/api/v1/projects/rank", json={"job_id": "missing"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Job not found"}
+
+
+def test_rank_projects_returns_empty_when_no_projects(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_get_job_by_id(db, user_id: str, job_id: str):
+        _ = db
+        return SimpleNamespace(
+            id=job_id,
+            user_id=user_id,
+            title="Backend Engineer",
+            job_description="Build scalable APIs",
+            job_requirements="FastAPI, PostgreSQL",
+        )
+
+    async def fake_list_projects_by_user_id(db, user_id: str):
+        _ = (db, user_id)
+        return []
+
+    called = {"rank": False}
+
+    async def fake_rank_projects_for_job(*args, **kwargs):
+        called["rank"] = True
+        _ = (args, kwargs)
+        return []
+
+    monkeypatch.setattr(projects_endpoints, "get_job_by_id", fake_get_job_by_id)
+    monkeypatch.setattr(projects_endpoints, "list_projects_by_user_id", fake_list_projects_by_user_id)
+    monkeypatch.setattr(projects_endpoints, "rank_projects_for_job", fake_rank_projects_for_job)
+
+    response = client.post("/api/v1/projects/rank", json={"job_id": "job-1"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ranked_projects": []}
+    assert called["rank"] is False
+
+
 def test_list_resumes_success(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "personal_info": {

@@ -148,7 +148,7 @@ def test_empty_selection_arrays_publish_empty_sections() -> None:
 
 
 def test_slug_collision_returns_409(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.api.v1.endpoints import portfolio_publications as endpoint
+    from app.api.v1.endpoints import publications as endpoint
 
     async def fake_create_portfolio_publication(*args, **kwargs):
         raise SlugConflictError()
@@ -169,7 +169,7 @@ def test_slug_collision_returns_409(client: TestClient, monkeypatch: pytest.Monk
 
 
 def test_integrity_error_returns_409(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.api.v1.endpoints import portfolio_publications as endpoint
+    from app.api.v1.endpoints import publications as endpoint
 
     async def fake_create_portfolio_publication(*args, **kwargs):
         raise IntegrityError("insert", {}, Exception("unique violation"))
@@ -191,7 +191,7 @@ def test_integrity_error_returns_409(client: TestClient, monkeypatch: pytest.Mon
 def test_public_endpoint_returns_404_for_unpublished(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from app.api.v1.endpoints import public_portfolios as endpoint
+    from app.api.v1.endpoints import portfolios as endpoint
 
     async def fake_get_publication_by_slug(db, slug: str):
         return SimpleNamespace(

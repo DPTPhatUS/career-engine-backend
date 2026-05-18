@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     project_autofill_agent_workspace_dir: str = ".codexpert"
     project_autofill_agent_top_k: int = 5
     project_autofill_agent_max_iterations: int = 6
+    project_similarity_embedding_model: str = "all-MiniLM-L6-v2"
+    project_similarity_score_floor: float = 0.05
+    project_similarity_score_ceiling: float = 0.95
 
     mistral_api_key: str = ""
     openai_api_key: str = ""

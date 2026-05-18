@@ -15,18 +15,21 @@ from app.crud.job import get_job_by_id
 from app.db.session import get_db
 from app.models.auth import User
 from app.schemas.project import (
+    RankProjectsRequest,
+    RankProjectsResponse,
     ProjectAutofillRequest,
     ProjectAutofillResponse,
     ProjectCreateRequest,
     ProjectResponse,
+    ProjectUpdateRequest,
     TailorProjectsRequest,
     TailorProjectsResponse,
-    ProjectUpdateRequest,
 )
 from app.services.project_autofill import (
     autofill_project_from_github,
 )
 from app.services.github_loader import GithubError
+from app.services.project_similarity import rank_projects_for_job
 from app.services.project_tailor import tailor_projects_for_job
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -107,6 +110,31 @@ async def tailor_projects_endpoint(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return TailorProjectsResponse(**payload)
+
+
+@router.post("/rank", response_model=RankProjectsResponse)
+async def rank_projects_endpoint(
+    data: RankProjectsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> RankProjectsResponse:
+    job = await get_job_by_id(db, current_user.id, data.job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    projects = await list_projects_by_user_id(db, current_user.id)
+    if not projects:
+        return RankProjectsResponse(ranked_projects=[])
+
+    ranked_projects = await rank_projects_for_job(
+        db=db,
+        user_id=current_user.id,
+        job=job,
+        projects=projects,
+        settings=settings,
+    )
+    return RankProjectsResponse(ranked_projects=ranked_projects)
 
 
 @router.get("", response_model=list[ProjectResponse])

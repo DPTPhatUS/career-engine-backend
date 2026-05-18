@@ -113,3 +113,24 @@ class TailoredProjectWarning(BaseModel):
 class TailorProjectsResponse(BaseModel):
     tailored_projects: list[TailoredProjectItem] = Field(default_factory=list)
     skipped_projects: list[TailoredProjectWarning] = Field(default_factory=list)
+
+
+class RankProjectsRequest(BaseModel):
+    job_id: str = Field(min_length=1)
+
+    @field_validator("job_id")
+    @classmethod
+    def _normalize_job_id(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("job_id must not be empty.")
+        return cleaned
+
+
+class RankedProjectItem(BaseModel):
+    project_id: str
+    similarity_score: int = Field(ge=0, le=100)
+
+
+class RankProjectsResponse(BaseModel):
+    ranked_projects: list[RankedProjectItem] = Field(default_factory=list)

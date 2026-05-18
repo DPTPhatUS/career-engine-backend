@@ -1,5 +1,5 @@
 from app.models.auth import GoogleCredential, OAuthLoginState, OAuthState, User, UserSession
-from app.models.career import Company, Education, Job, Profile, Project
+from app.models.career import Company, Education, Job, JobEmbedding, Profile, Project, ProjectEmbedding
 from app.models.publication import PublicPortfolio
 from app.models.resume import GeneratedDocument, Resume
 
@@ -14,6 +14,8 @@ __all__ = [
     "Project",
     "Company",
     "Job",
+    "ProjectEmbedding",
+    "JobEmbedding",
     "Resume",
     "GeneratedDocument",
     "PublicPortfolio",
