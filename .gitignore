@@ -17,3 +17,6 @@ token.json
 .env
 .env.*
 !.env.example
+
+# Index files
+.codexpert/
