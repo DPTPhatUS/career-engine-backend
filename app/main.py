@@ -6,10 +6,13 @@ from app.core.config import get_settings
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
+cors_origins = [settings.frontend_origin]
+if settings.public_site_base_url and settings.public_site_base_url not in cors_origins:
+    cors_origins.append(settings.public_site_base_url)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

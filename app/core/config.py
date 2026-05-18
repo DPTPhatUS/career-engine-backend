@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/career_engine"
 
     frontend_origin: str = "http://localhost:3000"
+    public_site_base_url: str | None = None
 
     google_client_id: str = ""
     google_client_secret: str = ""
