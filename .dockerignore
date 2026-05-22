@@ -1,0 +1,37 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Python / uv local state
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Tests / local docs not needed in runtime image
+tests
+docs
+scripts
+
+# Git / editor / OS noise
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+
+# Vendored dependency local noise
+vendor/codexpert/.git
+vendor/codexpert/.env
+vendor/codexpert/.env.*
+vendor/codexpert/.venv
+vendor/codexpert/__pycache__
+vendor/codexpert/.pytest_cache
+vendor/codexpert/.ruff_cache
+vendor/codexpert/tests
+vendor/codexpert/scripts
