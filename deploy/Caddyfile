@@ -1,0 +1,9 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	# FastAPI owns /api/v1; preserve the request path.
+	reverse_proxy api:8000
+}

@@ -1,0 +1,82 @@
+name: career-engine-backend
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-api: &api
+  image: career-engine-api:local
+  build:
+    context: .
+  init: true
+  environment:
+    APP_ENV: production
+    DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+    FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://career-engine.com}
+    PUBLIC_SITE_BASE_URL: ${FRONTEND_ORIGIN:-https://career-engine.com}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .env}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Set GOOGLE_CLIENT_SECRET in .env}
+    GOOGLE_LOGIN_REDIRECT_URI: https://${API_DOMAIN:?Set API_DOMAIN in .env}/api/v1/auth/google/login/callback
+    GOOGLE_REDIRECT_URI: https://${API_DOMAIN}/api/v1/auth/google/callback
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+    COOKIE_SECURE: "true"
+    COOKIE_SAMESITE: lax
+    PROJECT_AUTOFILL_AGENT_WORKSPACE_DIR: /data/codexpert
+    HF_HOME: /data/huggingface
+    PROJECT_AUTOFILL_LLM_PROVIDER: ${PROJECT_AUTOFILL_LLM_PROVIDER:-mistral}
+    MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    OMP_NUM_THREADS: "2"
+    TOKENIZERS_PARALLELISM: "false"
+  volumes:
+    - analysis_data:/data/codexpert
+    - model_cache:/data/huggingface
+  logging: *logging
+
+services:
+  # Run explicitly before starting the API; migrations change the Supabase database.
+  migrate:
+    <<: *api
+    profiles: [tools]
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    <<: *api
+    restart: unless-stopped
+    # Only Caddy exposes ports, so forwarded headers are trusted on this network.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips=*"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  analysis_data:
+  model_cache:
+  caddy_data:
+  caddy_config:
